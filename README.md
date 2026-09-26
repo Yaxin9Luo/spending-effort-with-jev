@@ -2,11 +2,11 @@
 
 **Know which `/effort` level each message needs, the moment you send it.** A Claude Code plugin: every message you send is read by [TypeSafe](https://typesafe.ai)'s Jev model, which judges how much effort the task deserves. You get a one-line verdict before Claude starts working, so you can switch in time.
 
-**Terminal:** on `low`, a quick question gets `○ low fits this`; a bug hunt gets `⬆ needs high`, and with `ask_first` on, Claude asks before starting.
+**Terminal:** on `low`, a quick question gets `○ low fits this`; a bug hunt gets `⬆ needs high`, and with `ask_first` on, Claude asks before starting. Orange: the plugin's line. Blue: Claude checking with you.
 
 <p align="center"><img src="assets/terminal.png" width="820" alt="Claude Code in the terminal: the effort line under each message, and Claude asking whether to switch to high"></p>
 
-**Desktop app:** same session flow; the line is in the "Claude Code notice", and Claude's question points you to the effort control under the input box.
+**Desktop app:** same flow. The line sits in the "Claude Code notice" (orange, click to expand); Claude's question (blue) points you to the effort control under the input box.
 
 <p align="center"><img src="assets/desktop.png" width="720" alt="Claude desktop app: Claude asks whether to switch to high effort before starting a bug fix"></p>
 
