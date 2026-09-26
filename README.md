@@ -154,6 +154,13 @@ TYPESAFE_API_KEY=... python3 tests/eval_live.py
 
 [`bench/`](bench) holds the task harness used for the runs above: headless `claude -p` in a clean environment, graded by hidden tests.
 
+## Status and roadmap
+
+I use this plugin heavily every day, and it has held up well, which is why I'm sharing it. Because it's part of my own daily workflow, I fix problems as soon as I hit them, and I keep adding features when I find better ways to use it.
+
+- **Codex:** a Codex version is planned. It will ship once I've confirmed that switching effort there doesn't drop context or hurt performance.
+- **Ideas welcome:** if you have an idea for a feature, or something that would make it more useful, [open an issue](https://github.com/Yaxin9Luo/spending-effort-with-jev/issues) or send a PR. Contributions, including the Codex port, are very welcome.
+
 ## Acknowledgements
 
 - **[Thariq Shihipar](https://claude.dev/blog/spending-your-effort/)**, for the post this plugin is built on and for sharing the interview → low → high workflow.
