@@ -10,7 +10,7 @@
 
 <p align="center"><img src="assets/desktop.png" width="720" alt="Claude desktop app: Claude asks whether to switch to high effort before starting a bug fix"></p>
 
-**Downgrade, on a session's first message:** on , "what is ppo" gets . The plugin hasn't seen your level yet, so Claude reads it (gray), finds , and offers to drop to  before answering (blue).
+**Downgrade, on a session's first message:** on `max`, "what is ppo" gets `low fits this`. The plugin hasn't seen your level yet, so Claude reads it (gray), finds `max`, and offers to drop to `low` before answering (blue).
 
 <p align="center"><img src="assets/desktop-downgrade.png" width="720" alt="Claude desktop app: on max effort, a quick question; Claude checks the level and offers to lower it to low"></p>
 
