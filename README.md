@@ -1,72 +1,98 @@
 # spending-effort-with-jev
 
-A Claude Code plugin that tells you when to switch `/effort`. Each time you send a message, [TypeSafe](https://typesafe.ai)'s Jev model reads it (plus the last few turns) and judges how much effort the task deserves. When that differs from your current level, you see one line:
+**Know when to switch `/effort` in Claude Code.** Every time you send a message, [TypeSafe](https://typesafe.ai)'s Jev model reads it and judges which effort level the task deserves. When your current level is off, Claude says so on the first line of its reply:
 
 ```
-Effort tip: `/effort high` (now low, confidence 0.99)
+> train.py crashes on the last value, find out why and fix it properly      (session on low)
+
+Effort tip: this looks like a `high` task and we're on `low`. `/effort high` applies from your next message.
+The last value crashed because it's `grad = 0.0`, and `step()` computes `math.log(grad)`...
 ```
 
-The tip shows up as a notice, and Claude also puts it on the first line of its reply, so you see it without expanding anything. It never switches effort for you (Claude Code doesn't let a session raise its own effort) and never blocks your message.
-
-How it knows your current level: Claude Code only passes the effort level to hooks during a turn, so Jev's advice is computed when you send the message and compared at the turn's first tool call (or at the end of a turn with no tool calls).
-
-## Why
-
-Thariq Shihipar's post [Using Claude Code: Spending your effort](https://claude.dev/blog/spending-your-effort/) shows that higher effort mostly buys more self-verification and edge-case testing:
-
-- **Low** for quick back-and-forth while you're watching: questions, brainstorming, sketches, small edits.
-- **Medium** for ordinary feature work.
-- **High** where verification matters: bug fixes in existing code, testing, data analysis.
-- **Max** for hard work Claude does fully on its own.
-
-It also shows that effort fixes missed edge cases but not a wrong approach. So before a long hands-off run, pin down the spec first. This plugin turns that rule of thumb into a per-message check.
-
-This is an independent project. It is not affiliated with or endorsed by Anthropic or TypeSafe.
-
-## What it checks
-
-One Jev request per message with two questions, answered in parallel:
-
-1. **Which effort level fits?** It picks from low, medium, high, max, or *unclear*. The *unclear* option is there for messages like "continue" or "ok" that don't say what the task is. Without it, the model would be forced to guess.
-2. **Is this a long hands-off task with ambiguous requirements?** If yes, it suggests having Claude interview you before you switch to max.
-
-It stays silent when:
-- the answer is *unclear*
-- confidence is below 0.6
-- the suggestion is within one level of your current effort (`xhigh` counts as close to both `high` and `max`)
-- it would repeat the tip it gave on your previous message
-
-Slash commands are skipped. Errors and timeouts are ignored.
+That's a real run from our tests. The plugin only suggests. It never switches effort for you, and it never blocks your message.
 
 ## Install
 
-You need Python 3 and a TypeSafe API key from [typesafe.ai](https://typesafe.ai).
+You need Python 3 and a TypeSafe API key ([typesafe.ai](https://typesafe.ai)).
 
 ```
 /plugin marketplace add Yaxin9Luo/spending-effort-with-jev
 /plugin install spending-effort-with-jev@spending-effort-with-jev
 ```
 
-Claude Code asks for your API key when you enable the plugin and keeps it in your system's secure storage. You can also leave the field empty and export `TYPESAFE_API_KEY` instead. Set `language` to `zh` for Chinese tips.
+Paste your key when Claude Code asks for it, or leave the field empty and `export TYPESAFE_API_KEY=...`. Run `/reload-plugins` or start a new session to turn it on. For Chinese tips, set `language` to `zh`.
 
-## Cost, latency, privacy
+## Why effort matters
 
-- **Latency:** one request per message you send. That's about 0.5 s median in our tests, with a 6 s client timeout.
-- **Privacy:** your message and up to six recent text turns (each cut to 600 characters) are sent to `api.typesafe.ai`. Don't install this if that's not acceptable for your work.
-- **Cost:** billed to your TypeSafe key.
+Thariq Shihipar's post [*Using Claude Code: Spending your effort*](https://claude.dev/blog/spending-your-effort/) is worth reading in full. The short version:
 
-## Tuning
+- **Effort buys verification.** Higher effort mostly means Claude reproduces bugs, writes adversarial tests and checks edge cases. On Terminal-Bench 3.0, Fable 5.1's "missed a case" failures fell from 59 to 24 between low and max, while tokens per attempt roughly tripled.
+- **It doesn't fix a wrong approach.** Failures from misreading the task didn't go away, so pin down the spec before a long run.
+- **The payoff varies by domain.** Hardware (34% → 75%) and security (64% → 87%) gained the most. Rule-following ops work barely moved.
+- **His rule of thumb:**
+  - **low** for quick back-and-forth, brainstorming and small edits
+  - **medium** for everyday feature work
+  - **high** when verification or edge cases matter, e.g. a bug in existing code
+  - **max** for hard problems Claude should solve fully on its own
+- **His loop for new features:** have Claude interview you to fill in the spec → implement on low → iterate on low → verify and test on high.
 
-The thresholds are constants at the top of [`effort_advisor.py`](plugins/spending-effort-with-jev/scripts/effort_advisor.py): `CONFIDENCE_MIN` (0.6) and `AMBIGUITY_MIN` (0.7). If the ambiguity tip fires too often, raise `AMBIGUITY_MIN`.
+The catch is that nobody remembers to switch. This plugin does the remembering.
 
-## Tests
+## What the level costs: three real runs
+
+Same task, same model (Opus 5.5), clean environment, graded by hidden tests:
+
+| Task | low | max |
+|---|---|---|
+| Rename a function across a small codebase | ✅ $0.09 · 14 s | ✅ $0.27 · 72 s |
+| Implement an LRU cache with TTL (20 hidden tests) | ✅ $0.10 · 24 s | ✅ $2.47 · 13 min |
+| Match npm semver ranges exactly (42 hidden tests) | ✅ $0.35 · 4 min | not run |
+
+On these tasks low was already enough, and max cost up to 25× more and took 30× longer for the same result. Opus 5.5 handled even the edge-case-heavy semver task on low. Effort earns its cost on harder, edge-case-heavy problems: in Anthropic's runs, an HTML sanitizer task went from 1/5 on low to 5/5 on xhigh. The skill is telling these apart, one message at a time.
+
+*One run per cell, so these are illustrations rather than a benchmark. The cost is Claude Code's reported API-equivalent cost.*
+
+## How well does Jev judge?
+
+We wrote 160 realistic Claude Code messages (English and Chinese, some with conversation context) and 60 hand-off requests. Three annotators (Opus, Sonnet and Fable, working blind from a rubric based on the post) labelled each one. Agreement was high: Fleiss' κ = 0.82 for level and 0.89 for hand-off ambiguity.
+
+On a held-out test split, with your session on `medium` (Opus 5.5's default):
+
+- **95%** of the tips shown pointed to the right level.
+- They caught **63%** of the messages that deserved a different level. When Jev isn't sure, it stays quiet.
+- The "clarify before a long run" tip fired on 30 of 33 genuinely ambiguous hand-offs, and wrongly on 7 of 187 clear ones.
+
+Everything is in [`eval/`](eval): prompts, labels, Jev outputs and the scripts. You can re-run it with `python3 eval/analyze.py`.
+
+## How it works
+
+1. **You send a message.** One Jev request (about 0.5 s, 6 s timeout) returns a level (low / medium / high / max, or *unclear* for things like "ok" and "continue") and whether it's an ambiguous hand-off. It sees your message plus the last few turns.
+2. **Claude's first tool call** (or the end of the turn, if there are no tool calls). Claude Code only reveals the current effort level to hooks during a turn, so the comparison happens here.
+3. **If the levels are a step or more apart and Jev is confident** (≥ 0.7), you get a notice, and Claude puts the tip on the first line of its reply. The same tip isn't repeated on consecutive messages.
+
+Claude Code doesn't let a session raise its own effort, so switching stays with you: `/effort <level>`.
+
+## Privacy and cost
+
+- **Privacy:** each message you send, plus up to six recent text turns (600 characters each), goes to `api.typesafe.ai`. Don't install the plugin if that's not OK for your work.
+- **Cost:** Jev is cheap. The 220-message evaluation above cost a few cents.
+- **Failures:** slash commands are skipped, and if the API is slow or down the plugin stays silent.
+
+## Development
 
 ```
-python3 -m unittest discover tests      # offline, policy logic
-TYPESAFE_API_KEY=... python3 tests/eval_live.py   # 14 labelled prompts against the live API
+python3 -m unittest discover tests        # offline tests
+TYPESAFE_API_KEY=... python3 tests/eval_live.py
 ```
 
-The live set is small, and the labels are the author's judgement. Treat it as a smoke test, not a benchmark.
+[`bench/`](bench) holds the task harness used for the runs above: headless `claude -p` in a clean environment, graded by hidden tests.
+
+## Acknowledgements
+
+- **[Thariq Shihipar](https://claude.dev/blog/spending-your-effort/)**, for the post this plugin is built on and for sharing the interview → low → high workflow.
+- **[TypeSafe](https://typesafe.ai)**, for Jev. A fast, calibrated judgment model is what makes a check on every message cheap enough to leave on.
+
+This is an independent project, not affiliated with or endorsed by Anthropic or TypeSafe.
 
 ## License
 

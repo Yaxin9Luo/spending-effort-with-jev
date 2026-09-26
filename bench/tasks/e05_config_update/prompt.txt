@@ -1,0 +1,7 @@
+Some config changes for the orders service, all in config/settings.toml:
+- bump the database pool_size to 20
+- change the log level to WARNING
+- drop the legacy_mode flag from [server], we removed that code path
+- add a [cache] section with backend = "redis", url = "redis://localhost:6379/0" and ttl_seconds = 300
+
+Leave everything else as it is.

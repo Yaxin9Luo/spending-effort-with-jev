@@ -1,0 +1,81 @@
+{
+  "items": 160,
+  "with_majority": 159,
+  "unanimous": 130,
+  "gold_level_counts": {
+    "low": 72,
+    "high": 45,
+    "medium": 24,
+    "unclear": 9,
+    "max": 9
+  },
+  "gold_ambiguous": 4,
+  "fleiss_kappa_level": 0.818,
+  "fleiss_kappa_ambiguous": 1.0,
+  "dev_n": 78,
+  "test_n": 81,
+  "chosen_thresholds": {
+    "CONFIDENCE_MIN": 0.7,
+    "AMBIGUITY_MIN": 0.85
+  },
+  "old_thresholds_test": {
+    "n": 81,
+    "top1_acc": 0.7777777777777778,
+    "tips_shown": 46,
+    "tip_precision": 0.9130434782608695,
+    "tip_recall": 0.65625,
+    "tip_f05": 0.846774193548387,
+    "ambiguity_precision": 1.0,
+    "ambiguity_recall": 1.0,
+    "ambiguity_tips": 3
+  },
+  "dev": {
+    "n": 78,
+    "top1_acc": 0.7564102564102564,
+    "tips_shown": 39,
+    "tip_precision": 0.9487179487179487,
+    "tip_recall": 0.5967741935483871,
+    "tip_f05": 0.8486238532110092,
+    "ambiguity_precision": 0.5,
+    "ambiguity_recall": 1.0,
+    "ambiguity_tips": 2
+  },
+  "test": {
+    "n": 81,
+    "top1_acc": 0.7777777777777778,
+    "tips_shown": 39,
+    "tip_precision": 0.9743589743589743,
+    "tip_recall": 0.59375,
+    "tip_f05": 0.8636363636363635,
+    "ambiguity_precision": 1.0,
+    "ambiguity_recall": 0.6666666666666666,
+    "ambiguity_tips": 2
+  },
+  "test_confusion_gold_to_jev": {
+    "low": {
+      "low": 31,
+      "medium": 3,
+      "high": 2
+    },
+    "medium": {
+      "medium": 8,
+      "low": 1,
+      "unclear": 2,
+      "high": 1
+    },
+    "high": {
+      "high": 16,
+      "max": 4,
+      "medium": 2,
+      "low": 1
+    },
+    "max": {
+      "max": 3,
+      "high": 1,
+      "unclear": 1
+    },
+    "unclear": {
+      "unclear": 5
+    }
+  }
+}

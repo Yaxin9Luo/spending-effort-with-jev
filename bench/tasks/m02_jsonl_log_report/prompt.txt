@@ -1,0 +1,25 @@
+I need a little CLI, logreport.py, that summarises our JSONL access logs (there's a sample.jsonl in the repo). Each line is a JSON object; the fields we care about are "path" (string), "status" (integer HTTP status) and "ms" (response time, int or float). Other fields can be ignored.
+
+Usage:
+    python3 logreport.py LOGFILE [--by path|status] [--top N]
+
+LOGFILE can be "-" to read from stdin. --by defaults to path.
+
+It should print a single JSON object to stdout:
+    {"total": <number of valid records>,
+     "skipped": <number of invalid lines>,
+     "groups": [{"key": ..., "count": ..., "errors": ..., "avg_ms": ..., "p95_ms": ...}, ...]}
+
+Details:
+- Group records by the --by field. With --by status the key is the integer status code.
+- errors = number of records in the group with status >= 500.
+- avg_ms = mean of ms, rounded to 2 decimal places.
+- p95_ms = 95th percentile of ms using the nearest-rank method: sort the values, take the one at 1-based rank ceil(0.95 * n).
+- Groups are sorted by count descending, ties broken by key ascending.
+- --top N keeps only the first N groups; total and skipped still describe the whole file.
+- Blank / whitespace-only lines are ignored entirely (not counted as skipped).
+- A line is skipped (and counted in "skipped") if it isn't valid JSON, isn't a JSON object, or is missing path/status/ms or has the wrong type for them: path must be a string, status an integer, ms a number. Booleans don't count as numbers, and numeric strings like "200" are invalid.
+- An empty log gives total 0 and an empty groups list.
+- If LOGFILE doesn't exist, print an error to stderr and exit with status 2. Otherwise exit 0.
+
+Stdlib only.

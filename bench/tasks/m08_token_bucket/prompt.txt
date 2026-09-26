@@ -1,0 +1,17 @@
+I need a token-bucket rate limiter in ratelimit.py (stdlib only). Two classes:
+
+TokenBucket(rate, capacity, clock=time.monotonic)
+- rate = tokens added per second, capacity = max tokens. Both must be > 0 (ints or floats), otherwise ValueError.
+- clock is a zero-arg function returning seconds; always read time through it so I can inject a fake clock in tests.
+- The bucket starts full. Tokens refill continuously (fractional tokens are fine) and never exceed capacity.
+- try_acquire(n=1) -> bool: if at least n tokens are available, take them and return True; otherwise return False and take nothing.
+- wait_time(n=1) -> float: how many seconds until n tokens would be available (0.0 if they already are). Doesn't consume anything.
+- tokens: read-only property with the current token count (after refill).
+- For try_acquire and wait_time, n must be > 0 and <= capacity (a request bigger than the bucket can never succeed), otherwise ValueError.
+- If the clock ever goes backwards, treat that as no time having passed — never remove tokens because of it, and don't crash.
+
+KeyedRateLimiter(rate, capacity, clock=time.monotonic)
+- Keeps an independent TokenBucket per key (e.g. per client IP), all with the same rate/capacity/clock, created on first use (so a new key starts full).
+- allow(key, n=1) -> bool: try_acquire on that key's bucket.
+- len(limiter) = number of keys currently tracked.
+- cleanup() -> int: forget every key whose bucket has refilled back to full capacity (it's indistinguishable from a fresh one), return how many were removed.

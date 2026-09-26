@@ -1,0 +1,1 @@
+Cutting the 1.5.0 release. Bump the version from 1.4.2 to 1.5.0 everywhere it's set (pyproject, the package itself, and the docs conf) and make sure they all agree. Also turn the Unreleased section of CHANGELOG.md into the 1.5.0 entry dated 2026-09-26, same heading format as the older entries, and leave the older entries alone.

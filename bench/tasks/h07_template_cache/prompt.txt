@@ -1,0 +1,12 @@
+The dev server shows stale pages after I edit a partial. Repro:
+
+>>> from sitegen import TemplateStore, Renderer
+>>> store = TemplateStore({"footer": "v1", "layout": '<main>{% include "footer" %}</main>', "page": '{% include "layout" %}'})
+>>> r = Renderer(store)
+>>> r.render("page")
+'<main>v1</main>'
+>>> store.set("footer", "v2")
+>>> r.render("page")
+'<main>v1</main>'
+
+Pages that include the footer directly do update; it's only when it's included through another template (like the layout) that the old version sticks. Can you fix the caching in sitegen? Keep the cache doing its job (see the renderer docstring for what's supposed to be recompiled and when), and the existing tests in tests/ must keep passing.

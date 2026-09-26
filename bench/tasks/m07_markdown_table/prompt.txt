@@ -1,0 +1,25 @@
+Implement format_table(headers, rows, align=None) in mdtable.py. It returns a GitHub-flavoured Markdown table as a string, with columns padded so the raw text lines up. Stdlib only.
+
+Example:
+
+    format_table(["Name", "Qty", "Note"], [["apple", 3, None], ["kiwi", 12, "a|b"]],
+                 align=["left", "right", "center"])
+
+returns (no trailing newline):
+
+    | Name  | Qty | Note |
+    | :---- | --: | :--: |
+    | apple |   3 |      |
+    | kiwi  |  12 | a\|b |
+
+Rules:
+- Cell text: None becomes "", everything else str(value). Then strip leading/trailing whitespace, replace line breaks (\r\n, \n or \r) with <br>, and escape | as \|. Headers get the same treatment.
+- Column width = the longest cell text in that column (header included, after the conversions above), but at least 3.
+- Each line is "| " + cells joined by " | " + " |". Lines are joined with "\n", no trailing newline.
+- Separator line, per column of width w: no alignment → "-" * w; "left" → ":" + "-" * (w-1); "right" → "-" * (w-1) + ":"; "center" → ":" + "-" * (w-2) + ":".
+- Padding: left or no alignment → pad on the right; right → pad on the left; center → put (w - len) // 2 spaces on the left and the rest on the right. Headers are padded with the same alignment as their column.
+- align is None or a list with one entry per column; each entry is "left", "right", "center" or None.
+- A row shorter than headers is padded with empty cells; a row longer than headers is a ValueError.
+- ValueError also for: empty headers, align of the wrong length, or an unknown align value.
+- No rows → just the header and separator lines.
+- rows can be any iterable of sequences (e.g. a generator of tuples).

@@ -1,0 +1,20 @@
+The invoice script blows up on the new batch of invoices:
+
+$ python3 -m invoicing.cli invoices/INV-1001.json invoices/INV-1002.json
+INV-1001: total 34.50, saved 2.50
+Traceback (most recent call last):
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "invoicing/cli.py", line 17, in <module>
+    sys.exit(main())
+  File "invoicing/cli.py", line 12, in main
+    print(f"{invoice['id']}: total {invoice_total(invoice):.2f}, saved {invoice_savings(invoice):.2f}")
+  File "invoicing/totals.py", line 11, in invoice_total
+    return round(sum(line_total(line) for line in invoice["lines"]), 2)
+  File "invoicing/totals.py", line 11, in <genexpr>
+    return round(sum(line_total(line) for line in invoice["lines"]), 2)
+  File "invoicing/totals.py", line 7, in line_total
+    return round(line_gross(line) * (1 - line["discount"]), 2)
+KeyError: 'discount'
+
+Some lines just don't have a discount field. A missing discount should be treated as no discount. Can you fix it?

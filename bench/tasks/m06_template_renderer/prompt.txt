@@ -1,0 +1,15 @@
+Please implement render(template, context) in minitemplate.py — we use it for HTML notification emails (see emails.py). Stdlib only. Raise TemplateError (already defined there) for all template problems.
+
+Syntax:
+- {{ expr }} is replaced by a value. Whitespace just inside the braces is optional ({{name}} and {{  name  }} both work). Everything outside tags is copied through unchanged.
+- expr is a dotted path, optionally followed by filters: {{ user.name|lower|default:"anon" }}.
+- Path lookup, one segment at a time, starting from the context dict: if the current value is a dict, use the key; if it's a list/tuple and the segment is an integer, index it; otherwise use the attribute. If any step fails, the variable is missing.
+- A missing variable raises TemplateError — unless the expression has a default filter.
+- Filters are applied left to right:
+  - upper, lower, trim (strip whitespace) — work on the string form of the value
+  - default:"text" — if the variable is missing or its value is None, use "text" instead (the argument is always a double-quoted string; it may contain spaces and colons)
+  - raw — don't HTML-escape this output
+  - any other filter name → TemplateError
+- Output: None renders as an empty string, everything else via str(). The final string is HTML-escaped exactly like html.escape(s, quote=True), unless the raw filter was used.
+- \{{ (a backslash right before the opening braces) outputs a literal {{ and that text isn't treated as a tag.
+- An opening {{ with no closing }}, or an empty expression like {{ }}, is a TemplateError.

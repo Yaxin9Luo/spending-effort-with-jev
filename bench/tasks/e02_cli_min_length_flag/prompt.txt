@@ -1,0 +1,1 @@
+Can you add a `--min-length` option to the wc_tool CLI? Only words with at least that many characters should be counted. Default is 1 so nothing changes if you don't pass it. Do the filtering in `count_words` (add a `min_length` keyword arg, default 1) and have the CLI pass the flag through, rather than filtering in the CLI.

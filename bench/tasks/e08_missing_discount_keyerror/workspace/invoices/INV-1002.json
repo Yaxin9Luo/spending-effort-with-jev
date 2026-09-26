@@ -1,0 +1,8 @@
+{
+  "id": "INV-1002",
+  "lines": [
+    {"sku": "INK-22", "unit_price": 12.0, "quantity": 2},
+    {"sku": "PEN-01", "unit_price": 2.5, "quantity": 4, "discount": 0.2},
+    {"sku": "BIN-03", "unit_price": 7.25, "quantity": 1}
+  ]
+}

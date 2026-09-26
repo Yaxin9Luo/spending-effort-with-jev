@@ -1,0 +1,7 @@
+{
+  "id": "INV-1001",
+  "lines": [
+    {"sku": "PEN-01", "unit_price": 2.5, "quantity": 10, "discount": 0.1},
+    {"sku": "PAD-07", "unit_price": 4.0, "quantity": 3, "discount": 0.0}
+  ]
+}

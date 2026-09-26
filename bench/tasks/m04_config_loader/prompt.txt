@@ -1,0 +1,19 @@
+settings.py has our DEFAULTS dict and a stub load_config(path=None, env=None). Can you implement it? Stdlib only. What I want:
+
+Layering, lowest to highest precedence: DEFAULTS < JSON file < environment variables. It returns a new dict and must never mutate DEFAULTS (including nested dicts/lists) — callers are allowed to modify what they get back.
+
+JSON file (only if path is given):
+- Deep-merge it into the config: nested objects merge key by key, anything else replaces the value.
+- Any key that doesn't exist in DEFAULTS (at any nesting level) is a ConfigError — it's almost always a typo.
+- File not found, or invalid JSON, or top level not an object → ConfigError.
+- Values from the file are used as they are, no type coercion.
+
+Environment (env is a mapping; when it's None use os.environ):
+- Only variables starting with MYAPP_ are considered. The rest of the name is lowercased and split on double underscores to form the path, so MYAPP_DB__POOL__SIZE sets config["db"]["pool"]["size"] and MYAPP_PORT sets config["port"].
+- MYAPP_ variables that don't map to an existing setting (unknown name, or pointing at a whole section like MYAPP_DB) are ignored — the environment is noisy.
+- Env values are strings, coerce them to the type of the DEFAULT value for that setting:
+  - bool: true/false, yes/no, on/off, 1/0 (case-insensitive, surrounding whitespace ignored)
+  - int, float: the usual parsing
+  - list: comma-separated, each item stripped of whitespace, empty items dropped (so "" gives [])
+  - str: as-is
+- If coercion fails, raise ConfigError and include the environment variable's name in the message.

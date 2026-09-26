@@ -1,0 +1,5 @@
+The config service (config_service.py) accepts JSON Patch updates, but apply_patch in jsonpatch_lite.py is still a stub. Please implement it.
+
+apply_patch(doc, patch) takes a document already parsed with json.loads and a patch (a list of operation dicts) and returns the patched document. Follow RFC 6902 exactly, with paths/from as RFC 6901 JSON Pointers — all six ops (add, remove, replace, move, copy, test). Any error (invalid or malformed operation, bad pointer, missing target, failed test, ...) should raise the JsonPatchError already defined in the module, and the patch must be all-or-nothing: never modify the caller's doc, whether the patch succeeds or fails.
+
+Stdlib only.

@@ -1,0 +1,1 @@
+Rename `calc_total` in shop/pricing.py to `compute_order_total` and update everything that calls it, tests included. Don't keep the old name around as an alias, just rename it.

@@ -1,0 +1,16 @@
+Our ticket exports are broken for notes with quotes or line breaks.
+
+1) Excel mangles any note containing a double quote. The export produces:
+
+>>> from reports.csvio import write_rows, read_rows
+>>> write_rows([["1", 'He said "hi"']])
+'1,"He said \\"hi\\""\r\n'
+
+That's not standard CSV — it's supposed to be RFC 4180.
+
+2) Re-importing an export where a note spans two lines splits the ticket in two:
+
+>>> read_rows(write_rows([["1", "line one\nline two"], ["2", "x"]]))
+[['1', 'line one'], ['line two'], ['2', 'x']]
+
+Please fix the reports package so exports are proper CSV and read_rows/import_records can read them (and files from Excel etc.) back correctly — the docstrings describe the intended format. The existing tests in tests/ must keep passing.

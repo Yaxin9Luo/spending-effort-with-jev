@@ -1,0 +1,5 @@
+Please implement next_run(expr, after) in cronnext.py (jobs.py already calls it). It takes a standard 5-field cron expression and a naive datetime and returns the first datetime strictly after `after` (on a whole minute, seconds/microseconds zero) when the job would fire.
+
+Match the real crontab(5) semantics of Vixie cron / cronie: *, lists, ranges, steps, month and weekday names, the @-nicknames (@yearly, @annually, @monthly, @weekly, @daily, @midnight, @hourly — not @reboot), and everything the man page says about how the fields combine. No timezones/DST to worry about. Raise ValueError for an invalid expression, and also for one that can never fire.
+
+Stdlib only.

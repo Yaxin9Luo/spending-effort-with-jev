@@ -1,0 +1,15 @@
+Our API client (api_client.py) only has single-object calls. Please add a generator method
+
+    Client.iter_items(path, page_size=100, limit=None, retries=2)
+
+for the list endpoints, which use cursor pagination:
+- Request GET <path> through self._get with params {"page_size": page_size} for the first page; for every later page also pass "cursor": <the previous response's next_cursor>. Don't send a cursor param on the first request.
+- A response looks like {"items": [...], "next_cursor": "abc123"}. Pagination ends when next_cursor is null, missing, or an empty string.
+- A page can come back with an empty items list but a non-null cursor — keep going in that case.
+- Yield the items one by one, lazily: don't request a page until the caller actually needs an item from it.
+- limit: yield at most `limit` items in total, and don't request any page you don't need to reach that limit. limit=0 yields nothing and makes no requests.
+- If the server hands back a cursor we've already used in this iteration, raise ApiError instead of looping forever (the status on that error doesn't matter).
+- Transient errors: when _get raises ApiError with status 429 or any 5xx, retry the same request up to `retries` more times, calling self.sleep(0.5) before the first retry, self.sleep(1.0) before the second, and so on (doubling). If it still fails, re-raise the last ApiError. Any other ApiError (e.g. 404) propagates immediately without retrying. The retry budget is per request, not shared across pages.
+- page_size < 1, negative limit or negative retries → ValueError (raised at the time iter_items is called is fine, or on first iteration — either is OK).
+
+Stdlib only; keep the existing methods working.

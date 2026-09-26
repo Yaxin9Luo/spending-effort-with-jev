@@ -1,0 +1,1 @@
+{"id": "m01_lru_ttl_cache", "tier": "medium", "summary": "Implement an LRU cache with default/per-entry TTL and an injectable clock.", "what_tests_check": "LRU order (get refreshes, `in` doesn't, overwrite refreshes without evicting), expiry boundary, per-call ttl, live-only len/in/delete, expired entries purged before LRU eviction, argument validation."}

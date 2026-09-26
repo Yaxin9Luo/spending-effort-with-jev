@@ -1,0 +1,1 @@
+loader.py and render.py are sitting at the top level of the repo. Move them into a new `tablekit` package (tablekit/loader.py, tablekit/render.py) and fix all the imports, main.py and the tests included. main.py stays where it is. Don't leave the old top-level modules behind.

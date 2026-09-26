@@ -1,0 +1,1 @@
+numtools/stats.py has no docstrings or type hints. Please add a docstring and full type hints (every parameter plus the return type) to each public function in it. Numeric inputs are sequences of floats, word_lengths takes a str and returns a list of ints. Don't change any behaviour.

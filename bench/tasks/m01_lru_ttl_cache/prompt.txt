@@ -1,0 +1,18 @@
+Can you implement the TTLCache class in ttlcache.py? It's an in-memory LRU cache where entries also expire.
+
+Constructor: TTLCache(maxsize, ttl=None, clock=time.monotonic)
+- maxsize: max number of live entries, must be a positive int (ValueError otherwise).
+- ttl: default time-to-live in seconds for entries; None means entries never expire. If given it must be > 0 (ValueError otherwise).
+- clock: zero-arg function returning the current time in seconds. I want to inject a fake clock in tests, so always read time through it.
+
+Methods:
+- set(key, value, ttl=None): store the value. A per-call ttl overrides the default one (same rule: must be > 0 if given, else ValueError). Setting a key that already exists replaces the value, restarts its expiry, and makes it the most recently used. Overwriting an existing key never evicts anything else.
+- get(key, default=None): return the value, or default if the key is missing or expired. A successful get makes the entry most recently used.
+- delete(key): remove the entry; return True if a live entry was removed, False if it was missing or already expired.
+- len(cache) and `key in cache` only count live entries. `in` must not change the LRU order.
+
+Expiry: an entry set at time t with ttl d is expired once clock() >= t + d.
+
+Eviction: when inserting a new key into a full cache, first drop any expired entries; only if it's still full, evict the least recently used live entry.
+
+Stdlib only please.

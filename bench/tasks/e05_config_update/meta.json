@@ -1,0 +1,1 @@
+{"id": "e05_config_update", "tier": "easy", "summary": "Edit a TOML config: change two values, remove a key, add a new [cache] section.", "what_tests_check": "Parsed TOML has pool_size 20, log level WARNING, no server.legacy_mode, cache section with the three given values; all other keys unchanged; the app loader still loads it."}

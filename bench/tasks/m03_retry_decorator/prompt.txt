@@ -1,0 +1,17 @@
+Please implement a retry decorator in retry.py (stdlib only). Signature:
+
+    retry(attempts=3, exceptions=(Exception,), delay=0.0, backoff=2.0,
+          max_delay=None, sleep=time.sleep, on_retry=None)
+
+It's always used with parentheses, e.g. @retry(attempts=5, exceptions=ConnectionError, delay=0.5).
+
+Behaviour:
+- Call the wrapped function up to `attempts` times in total, passing args/kwargs through and returning its result.
+- If a call raises one of `exceptions` and attempts remain, wait and try again. `exceptions` can be a single exception class or a tuple of them; subclasses count.
+- When the last attempt fails, re-raise that exception as-is (the original exception object, not wrapped in anything).
+- Any exception not in `exceptions` propagates immediately, with no retry and no sleep.
+- The wait before the k-th retry (k = 1 for the first retry) is delay * backoff ** (k - 1), capped at max_delay if it's set. Call sleep(wait) exactly once before every retry, even when the wait works out to 0. Never sleep after the final failure.
+- If on_retry is given, call on_retry(attempt, exc, wait) just before each sleep, where attempt is the 1-based number of the attempt that just failed.
+- Keep the wrapped function's __name__/__doc__ (functools.wraps).
+- Validate arguments when retry(...) is called: attempts < 1, delay < 0, backoff < 1 or max_delay < 0 raise ValueError.
+- It must also work on `async def` functions: the decorated function stays a coroutine function (inspect.iscoroutinefunction is True) and the retrying happens when it's awaited. For async functions the default sleep is asyncio.sleep; a custom `sleep` may be either a normal function or an async one — if calling it returns an awaitable, await it.

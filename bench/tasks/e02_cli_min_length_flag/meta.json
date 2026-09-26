@@ -1,0 +1,1 @@
+{"id": "e02_cli_min_length_flag", "tier": "easy", "summary": "Add a --min-length CLI flag (default 1) and wire it through to count_words(min_length=...).", "what_tests_check": "count_words honours min_length with default 1; CLI filters with --min-length, output unchanged without it; flag shows in --help."}

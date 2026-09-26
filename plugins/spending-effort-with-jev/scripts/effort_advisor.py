@@ -20,8 +20,8 @@ import sys
 import urllib.request
 from pathlib import Path
 
-CONFIDENCE_MIN = 0.6      # below this, say nothing
-AMBIGUITY_MIN = 0.7       # noul threshold for the "clarify first" warning
+CONFIDENCE_MIN = 0.7      # below this, say nothing (chosen on eval dev split)
+AMBIGUITY_MIN = 0.7       # "clarify first" tip (repeated-split CV plateau 0.7-0.8)
 TIMEOUT_S = 6
 STATE_DIR = Path(os.environ.get("CLAUDE_PLUGIN_DATA")
                  or Path.home() / ".claude" / "spending-effort-with-jev")
@@ -30,7 +30,8 @@ RANK = {"low": 0, "medium": 1, "high": 2, "xhigh": 2.5, "max": 3}
 EFFORT_CRITERIA = {
     "low": "Quick back-and-forth with the user watching: questions, brainstorming, "
            "sketches, explanations, small or mechanical edits, rule-following chores "
-           "like moving files or editing config.",
+           "like moving files or editing config. Includes follow-up questions about "
+           "the agent's previous reply (why, what does this mean, which is cheaper).",
     "medium": "Ordinary software work with the user reviewing: implementing a new "
               "feature or script from a clear description, routine refactors.",
     "high": "Work where verification and hidden edge cases matter: fixing a bug in "
@@ -39,8 +40,9 @@ EFFORT_CRITERIA = {
     "max": "Hard work the user wants done fully autonomously, e.g. an unattended or "
            "overnight run, building and verifying a whole system end to end, "
            "security or correctness audits of critical code.",
-    "unclear": "The message and recent conversation don't say enough to tell what "
-               "the task is (e.g. 'continue', 'ok', 'run it', a bare confirmation).",
+    "unclear": "Only a bare go-ahead or confirmation whose task can't be told from "
+               "the message or recent conversation (e.g. 'continue', 'ok', 'run it'). "
+               "A question the user asks is never unclear.",
 }
 
 

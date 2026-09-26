@@ -1,0 +1,8 @@
+Our internal package index is Python and needs to resolve npm-style dependency ranges exactly the way npm does. Can you implement the two functions in semverlite.py?
+
+- satisfies(version, range_) -> bool
+- max_satisfying(versions, range_) -> the highest version string from the list that satisfies the range, or None
+
+Semantics should match npm's node-semver with default options (not loose mode, includePrerelease off): comparators, ^ and ~, x-ranges / partial versions, hyphen ranges, space-separated comparator sets, || unions, and the prerelease rules. If the version or the range is invalid, satisfies should just return False (like node-semver does); max_satisfying should skip invalid entries in the list and return None for an invalid range.
+
+Stdlib only, no third-party packages.

@@ -1,0 +1,8 @@
+{"ts": "2026-09-01T10:00:00Z", "path": "/api/users", "status": 200, "ms": 12.5}
+{"ts": "2026-09-01T10:00:01Z", "path": "/api/users", "status": 200, "ms": 30}
+{"ts": "2026-09-01T10:00:02Z", "path": "/api/orders", "status": 503, "ms": 1200}
+{"ts": "2026-09-01T10:00:03Z", "path": "/health", "status": 200, "ms": 1}
+
+{"ts": "2026-09-01T10:00:04Z", "path": "/api/orders", "status": 201, "ms": 88}
+not json at all
+{"ts": "2026-09-01T10:00:05Z", "path": "/api/users", "status": 404, "ms": 5}

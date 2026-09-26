@@ -1,0 +1,10 @@
+The room finder is offering weird free slots. With back-to-back meetings, free_slots returns a zero-length slot:
+
+>>> from datetime import datetime as dt
+>>> from scheduler.intervals import Interval
+>>> from scheduler.slots import free_slots, format_slots
+>>> busy = [Interval(dt(2025, 3, 10, 9), dt(2025, 3, 10, 10)), Interval(dt(2025, 3, 10, 10), dt(2025, 3, 10, 11))]
+>>> format_slots(free_slots(busy, dt(2025, 3, 10, 9), dt(2025, 3, 10, 12)))
+'10:00-10:00, 11:00-12:00'
+
+Also, someone reported last week that it offered them a slot in the middle of an all-morning workshop; I couldn't reproduce that with a simple case. Please fix the scheduler package so free_slots (and anything else with the same problem) is actually correct per the docstrings, without breaking other behaviour. The existing tests in tests/ must keep passing.

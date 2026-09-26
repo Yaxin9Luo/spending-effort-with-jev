@@ -1,0 +1,1 @@
+{"id": "e01_rename_function", "tier": "easy", "summary": "Rename calc_total to compute_order_total across a small package and its tests, no alias.", "what_tests_check": "New name works with same results; old name gone from all .py identifiers; checkout/report call sites and the existing test suite still work."}

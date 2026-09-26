@@ -1,0 +1,1 @@
+{"id": "m02_jsonl_log_report", "tier": "medium", "summary": "Write a CLI that aggregates a JSONL access log into a per-path/per-status JSON report.", "what_tests_check": "Counts, error counts, rounded mean, nearest-rank p95, sort order and --top, --by status int keys, stdin '-', skipping/counting malformed and mistyped lines, blank lines ignored, missing file exits 2."}

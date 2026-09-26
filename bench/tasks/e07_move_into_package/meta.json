@@ -1,0 +1,1 @@
+{"id": "e07_move_into_package", "tier": "easy", "summary": "Move two top-level modules into a new tablekit package and fix imports in main.py and tests.", "what_tests_check": "tablekit.loader/tablekit.render importable with same behaviour; old top-level loader.py/render.py gone; main.py output unchanged; existing tests/ suite passes."}

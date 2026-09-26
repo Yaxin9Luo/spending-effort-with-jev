@@ -1,0 +1,1 @@
+{"id": "e08_missing_discount_keyerror", "tier": "easy", "summary": "Fix KeyError when invoice lines lack a 'discount' field; missing discount means no discount.", "what_tests_check": "line_total/invoice_total/invoice_savings handle lines without discount (as 0) and are unchanged for lines with one; the CLI runs on both sample invoices with correct output."}

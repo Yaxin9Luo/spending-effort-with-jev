@@ -1,0 +1,8 @@
+bundle.py builds our deploy bundle from a checkout and should leave out everything git ignores, but ignorematch.is_ignored is still a stub. Can you implement it?
+
+is_ignored(path, patterns, is_dir=False) -> bool
+- path: relative to the repo root, '/'-separated (e.g. "src/app/main.py")
+- patterns: the lines of the repo's top-level .gitignore (that's the only ignore file we care about; no global excludes, case-sensitive)
+- is_dir: whether path itself is a directory
+
+It should return exactly what git would decide for that path, following the gitignore(5) rules. Stdlib only — we can't shell out to git on the build box.

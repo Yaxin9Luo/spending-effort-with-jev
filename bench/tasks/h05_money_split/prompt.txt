@@ -1,0 +1,13 @@
+Refund splits are coming out wrong. Splitting a -$100.00 refund three ways:
+
+>>> from billing.split import split_evenly
+>>> split_evenly("-100.00", 3)
+[Decimal('-33.32'), Decimal('-33.32'), Decimal('-33.33')]
+
+That adds up to -99.97, not -100.00. Separately, accounting says amounts are sometimes a cent off, e.g.
+
+>>> from billing.money import to_cents
+>>> to_cents(0.29)
+28
+
+Can you track these down and fix the billing package properly? The docstrings describe how everything is supposed to behave, and the existing tests in tests/ must keep passing.

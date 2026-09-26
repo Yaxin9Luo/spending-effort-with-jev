@@ -1,0 +1,1 @@
+{"id": "e03_print_to_logging", "tier": "easy", "summary": "Convert print() calls in backup/sync.py to a module logger with specified levels.", "what_tests_check": "Each message logged on logger 'backup.sync' at the stated level without ERROR:/WARNING: prefixes; nothing printed; no root handlers configured on import; return values and copying unchanged."}

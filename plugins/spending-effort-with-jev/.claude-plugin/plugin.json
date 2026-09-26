@@ -1,6 +1,6 @@
 {
   "name": "spending-effort-with-jev",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Suggests when to switch /effort, judged per prompt by TypeSafe's Jev. Based on the ideas in 'Using Claude Code: Spending your effort'. Unofficial.",
   "author": { "name": "Yaxin Luo" },
   "license": "MIT",
