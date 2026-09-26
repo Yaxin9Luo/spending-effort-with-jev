@@ -66,7 +66,8 @@ class Status(unittest.TestCase):
 
     def test_stop_step_worded_per_client(self):
         self.assertIn("→ Esc,", ea.status(answers("high"), "low")[1])
-        self.assertIn("→ stop,", ea.status(answers("high"), "low", desktop=True)[1])
+        self.assertIn("→ stop, set high in the bar", ea.status(answers("high"), "low", desktop=True)[1])
+        self.assertIn("→ set low in the bar", ea.status(answers("low"), "max", desktop=True)[1])
 
     def test_client_detected_from_entrypoint(self):
         env = dict(os.environ)
@@ -94,7 +95,8 @@ class Status(unittest.TestCase):
                                     text = ea.status(answers(rec, conf, amb), cur, src, lg,
                                                      ask, desktop=desktop)[1]
                                     self.assertNotIn("`", text)
-                                    self.assertLessEqual(width(text), 76, text)
+                                    # The terminal wraps at its width; the desktop app reflows.
+                                    self.assertLessEqual(width(text), 84 if desktop else 76, text)
 
     def test_chinese(self):
         self.assertIn("需要 high", ea.status(answers("high"), "low", language="zh")[1])
@@ -173,7 +175,7 @@ class Flow(Base):
         self.assertIn("was low", self.line("high"))
 
     def test_ask_mode(self):
-        os.environ["CLAUDE_PLUGIN_OPTION_ASK_BEFORE_UPGRADE"] = "true"
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
         self.stop("low")
         out = self.prompt("high")
         self.assertIn("check with you", out["systemMessage"])
@@ -187,17 +189,21 @@ class Flow(Base):
         self.assertIn("same as last turn", self.line("high"))
 
     def test_ask_turn_interrupted_does_not_suppress_twice(self):
-        os.environ["CLAUDE_PLUGIN_OPTION_ASK_BEFORE_UPGRADE"] = "true"
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
         self.stop("low")
         self.prompt("high")          # Claude would ask...
         self.line("high")            # ...but the user hit Esc and resent
         self.stop("high")
         self.assertIn("same as last turn", self.line("high"))
 
-    def test_ask_mode_leaves_downgrades_alone(self):
-        os.environ["CLAUDE_PLUGIN_OPTION_ASK_BEFORE_UPGRADE"] = "true"
+    def test_ask_mode_covers_downgrades(self):
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
         self.stop("max")
-        self.assertNotIn("hookSpecificOutput", self.prompt("low"))
+        out = self.prompt("low")
+        self.assertIn("check with you", out["systemMessage"])
+        self.assertIn("/effort low", out["hookSpecificOutput"]["additionalContext"])
+        self.stop("max")  # Claude asked
+        self.assertIn("fits this", self.line("low", text="switched, go"))
 
     def test_quiet_mode_only_shows_switches(self):
         os.environ["CLAUDE_PLUGIN_OPTION_QUIET"] = "true"
@@ -228,7 +234,7 @@ class Flow(Base):
         self.assertIn("/effort max", self.line("max"))  # a different tip is spelled out
 
     def test_ask_mode_asks_once_per_situation(self):
-        os.environ["CLAUDE_PLUGIN_OPTION_ASK_BEFORE_UPGRADE"] = "true"
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
         self.stop("low")
         self.assertIn("hookSpecificOutput", self.prompt("high"))
         self.stop("low")                            # Claude asked

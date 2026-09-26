@@ -58,11 +58,16 @@ MESSAGES = {
     "en": {
         "now": "now {cur}",
         "last": "was {cur}",
-        "up": "⬆ effort: needs {rec} ({conf:.2f}) · {where} → {stop}, /effort {rec}, continue",
+        "up": "⬆ effort: needs {rec} ({conf:.2f}) · {where} → {stop}, {switch}, continue",
         "stop_terminal": "Esc",
         "stop_desktop": "stop",
+        "switch_terminal": "/effort {rec}",
+        "switch_desktop": "set {rec} in the bar",
+        "how_terminal": "/effort {rec}",
+        "how_desktop": "the effort control under the input box",
         "up_ask": "⬆ effort: needs {rec} ({conf:.2f}) · {where} → Claude will check with you",
-        "down": "⬇ effort: {rec} is enough ({conf:.2f}) · {where} → /effort {rec}",
+        "down_ask": "⬇ effort: {rec} is enough ({conf:.2f}) · {where} → Claude will check with you",
+        "down": "⬇ effort: {rec} is enough ({conf:.2f}) · {where} → {switch}",
         "up_again": "⬆ effort: needs {rec} ({conf:.2f}) · {where}",
         "down_again": "⬇ effort: {rec} is enough ({conf:.2f}) · {where}",
         "match_last": "✓ effort: {rec} fits ({conf:.2f}) · same as last turn",
@@ -70,28 +75,33 @@ MESSAGES = {
         "fits": "○ effort: {rec} fits this ({conf:.2f})",
         "unsure": "○ effort: maybe {rec} ({conf:.2f}), not sure · keep your level",
         "unclear": "○ effort: nothing to judge here · keep your level",
-        "ambiguous": "⚠ effort: long run, fuzzy spec → have Claude interview you, then /effort max",
+        "ambiguous": "⚠ effort: long run, fuzzy spec → have Claude interview you, then go max",
         "error": "○ effort: no tip this time (Jev didn't answer)",
         "bad_key": "⚠ effort: TypeSafe rejected the API key · check it in /plugin",
         "no_key": "spending-effort-with-jev: no TypeSafe API key found, so effort "
                   "tips are off. Set it in /plugin or export TYPESAFE_API_KEY. "
                   "Get a key at https://typesafe.ai",
-        "ask": "[spending-effort-with-jev] Jev judged that this request needs "
+        "ask": "[spending-effort-with-jev] Jev judged that this request fits "
                "{rec} effort (confidence {conf:.2f}), but the session is on {cur}. "
                "The user asked to be checked with before work starts in this case. "
                "Before doing anything else, reply in one short line: say this looks "
                "like a {rec}-effort task and the session is on {cur}, and ask whether "
-               "to switch with /effort {rec} and then say continue, or go ahead as is. "
+               "to switch with {how} and then say continue, or go ahead as is. "
                "Then stop and wait for the answer.",
     },
     "zh": {
         "now": "当前 {cur}",
         "last": "上一轮 {cur}",
-        "up": "⬆ effort：需要 {rec}（{conf:.2f}）· {where} → {stop}、/effort {rec}、再发“继续”",
+        "up": "⬆ effort：需要 {rec}（{conf:.2f}）· {where} → {stop}、{switch}、再发“继续”",
         "stop_terminal": "Esc",
         "stop_desktop": "停止",
+        "switch_terminal": "/effort {rec}",
+        "switch_desktop": "在底栏选 {rec}",
+        "how_terminal": "/effort {rec}",
+        "how_desktop": "输入框下方的档位栏",
         "up_ask": "⬆ effort：需要 {rec}（{conf:.2f}）· {where} → Claude 会先问你要不要切",
-        "down": "⬇ effort：{rec} 就够（{conf:.2f}）· {where} → /effort {rec}",
+        "down_ask": "⬇ effort：{rec} 就够（{conf:.2f}）· {where} → Claude 会先问你要不要切",
+        "down": "⬇ effort：{rec} 就够（{conf:.2f}）· {where} → {switch}",
         "up_again": "⬆ effort：需要 {rec}（{conf:.2f}）· {where}",
         "down_again": "⬇ effort：{rec} 就够（{conf:.2f}）· {where}",
         "match_last": "✓ effort：{rec} 正合适（{conf:.2f}）· 和上一轮一样",
@@ -99,16 +109,16 @@ MESSAGES = {
         "fits": "○ effort：这条适合 {rec}（{conf:.2f}）",
         "unsure": "○ effort：可能是 {rec}（{conf:.2f}），把握不大 · 保持当前档位",
         "unclear": "○ effort：这条看不出任务 · 保持当前档位",
-        "ambiguous": "⚠ effort：要放手长跑，但需求有歧义 → 先让 Claude 采访你，再 /effort max",
+        "ambiguous": "⚠ effort：要放手长跑，但需求有歧义 → 先让 Claude 采访你，再切到 max",
         "error": "○ effort：Jev 没响应，这次没有建议",
         "bad_key": "⚠ effort：TypeSafe 拒绝了这个 API key，请在 /plugin 里检查",
         "no_key": "spending-effort-with-jev：没找到 TypeSafe API key，effort 建议已关闭。"
                   "在 /plugin 里填写，或设置环境变量 TYPESAFE_API_KEY。"
                   "申请地址：https://typesafe.ai",
-        "ask": "[spending-effort-with-jev] Jev 判断这条请求需要 {rec} effort"
+        "ask": "[spending-effort-with-jev] Jev 判断这条请求适合 {rec} effort"
                "（置信度 {conf:.2f}），但当前会话是 {cur}。用户要求这种情况下先确认再开工。"
                "在做任何事之前，先用一句中文回复：说明这像是 {rec} 档的任务、当前是 {cur}，"
-               "问用户是用 /effort {rec} 切档后回复“继续”，还是保持现在的档位直接做。"
+               "问用户是用{how}切到 {rec} 后回复“继续”，还是保持现在的档位直接做。"
                "然后停下来等回答。",
     },
 }
@@ -253,10 +263,11 @@ def status(answers, current, source="turn", language="en", ask=False, repeat=Fal
     kind = "up" if RANK[rec] > RANK[current] else "down"
     if repeat:
         return kind, m[kind + "_again"].format(rec=rec, conf=conf, where=where)
-    if kind == "up" and ask:
-        return kind, m["up_ask"].format(rec=rec, conf=conf, where=where)
-    stop = m["stop_desktop" if desktop else "stop_terminal"]
-    return kind, m[kind].format(rec=rec, conf=conf, where=where, stop=stop)
+    if ask:
+        return kind, m[kind + "_ask"].format(rec=rec, conf=conf, where=where)
+    client = "desktop" if desktop else "terminal"
+    return kind, m[kind].format(rec=rec, conf=conf, where=where, stop=m["stop_" + client],
+                                switch=m["switch_" + client].format(rec=rec))
 
 
 # ---------------------------------------------------------------- state
@@ -349,7 +360,7 @@ def on_prompt(data):
     # they've seen the steps and chose to stay, so be brief and don't ask again.
     repeat = (bool(current) and tip.get("rec") == eff["choice"]
               and tip.get("cur") == current and turn.get("t", 0) > tip.get("t", 0))
-    ask = option("ask_before_upgrade") and not repeat
+    ask = option("ask_first") and not repeat
     kind, text = status(answers, current, source, lang(), ask, repeat, in_desktop_app())
     now = time.time()
     write_json(state_file("advice", session),
@@ -357,15 +368,17 @@ def on_prompt(data):
     if kind in ("up", "down"):
         write_json(state_file("tip", session),
                    {"rec": eff["choice"], "cur": current, "t": now,
-                    "asked": kind == "up" and ask})
+                    "asked": ask})
     if quiet and kind not in ("up", "down", "ambiguous"):
         return
     out = {"systemMessage": text}
-    if kind == "up" and ask:
+    if kind in ("up", "down") and ask:
         out["hookSpecificOutput"] = {
             "hookEventName": "UserPromptSubmit",
             "additionalContext": m["ask"].format(
-                rec=eff["choice"], conf=eff.get("confidence", 0), cur=current)}
+                rec=eff["choice"], conf=eff.get("confidence", 0), cur=current,
+                how=m["how_desktop" if in_desktop_app() else "how_terminal"].format(
+                    rec=eff["choice"]))}
     emit(out)
 
 

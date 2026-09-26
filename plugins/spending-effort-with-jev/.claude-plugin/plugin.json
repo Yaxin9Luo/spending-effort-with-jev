@@ -31,10 +31,10 @@
       "description": "Only show a line when a switch is suggested.",
       "default": false
     },
-    "ask_before_upgrade": {
+    "ask_first": {
       "type": "boolean",
-      "title": "Ask before upgrading",
-      "description": "When a message needs more effort than the session has, Claude asks whether to switch before it starts.",
+      "title": "Ask first",
+      "description": "When a message looks like it needs a different effort level (higher or lower), Claude asks whether to switch before it starts.",
       "default": false
     }
   }

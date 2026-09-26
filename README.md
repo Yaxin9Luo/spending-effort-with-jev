@@ -29,21 +29,21 @@ Paste your key when Claude Code asks, or leave it empty and `export TYPESAFE_API
 
 | Line | Meaning |
 |---|---|
-| `⬆ effort: needs high (0.99) · was low → Esc, /effort high, continue` | Needs more effort than you have. The first time, it tells you how to switch; if you stay put, later repeats are shorter. |
+| `⬆ effort: needs high (0.99) · was low → Esc, /effort high, continue` | Needs more effort than you have. The first time, it tells you how to switch (in the desktop app: "stop, set high in the bar, continue"); if you stay put, later repeats are shorter. |
 | `⬇ effort: low is enough (0.95) · was max → /effort low` | You're spending more than this needs. |
 | `✓ effort: medium fits (0.91) · same as last turn` | You're on the right level. |
 | `○ effort: high fits this (0.98)` | The recommendation, when there's nothing trustworthy to compare with yet (a session's first message, or right after you pressed Esc to switch). |
 | `○ effort: maybe high (0.55), not sure · keep your level` | Jev isn't confident, so no advice. |
 | `○ effort: nothing to judge here · keep your level` | "ok", "continue" and the like. Answered instantly, without calling Jev. |
-| `⚠ effort: long run, fuzzy spec → have Claude interview you, then /effort max` | A long hands-off task with open questions. More effort won't fix a wrong reading of the task; a few questions first will. |
+| `⚠ effort: long run, fuzzy spec → have Claude interview you, then go max` | A long hands-off task with open questions. More effort won't fix a wrong reading of the task; a few questions first will. |
 
 The number is Jev's confidence. **"was low"** is the level your last completed turn ran on: hooks can't see a `/effort` switch until the next turn ends. (The optional status line below fixes that in the terminal.)
 
 ## Acting on a tip
 
-- **To apply it to the current message:** stop Claude (Esc in the terminal, the stop button in the desktop app), switch with `/effort high`, then send `continue`. Claude still has your request and picks it up at the new level. This is the same in both clients: once a message is sent, Claude starts at the current level, and a switch applies from the next message. The line says "Esc" in the terminal and "stop" in the desktop app.
-- **Or let Claude wait for you:** turn on `ask_before_upgrade`. When a message needs more effort than the session has, Claude asks whether to switch before it does any work, and waits for your answer. It asks once; if you choose to stay, it won't keep asking.
-- In the terminal, `/effort <level>` also saves that level as your default for the model. To change just this session, open `/effort` and press `s`.
+- **To apply it to the current message:** stop Claude, switch, then send `continue`. Claude still has your request and picks it up at the new level. In the terminal that's Esc and `/effort high`; in the desktop app it's the stop button and the effort control in the bar under the input box. The line is worded for the client you're in. This works the same in both: once a message is sent, Claude starts at the current level, and a switch applies from the next message.
+- **Or let Claude wait for you:** turn on `ask_first`. When a message looks like it needs a different level, higher or lower, Claude asks whether to switch before it does any work, and waits for your answer. On `max` for a quick question, it offers to drop to `low`; on `low` for a tricky bug, it offers `high`. It asks once per situation; if you choose to stay, it won't keep asking. This is the easiest way in the desktop app.
+- In the terminal, `/effort <level>` also saves that level as your default for the model; to change just this session, open `/effort` and press `s`. In the desktop app, use the effort control under the input box. (Typing `/effort <level>` there also works but changes this session only, and the label under the input box may keep showing the old level.)
 
 ## Options
 
@@ -53,7 +53,7 @@ Set them when you enable the plugin, or later under `/plugin`.
 |---|---|---|
 | `language` | `en` | `zh` for Chinese lines. |
 | `quiet` | off | Only show a line when a switch is suggested (or a hand-off needs a spec). |
-| `ask_before_upgrade` | off | Claude checks with you before starting work that needs more effort than you have. |
+| `ask_first` | off | When a message needs a different level (up or down), Claude asks before it starts. |
 
 ## Optional: status line (terminal)
 
