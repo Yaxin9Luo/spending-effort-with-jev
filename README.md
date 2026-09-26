@@ -2,14 +2,9 @@
 
 **Know when to switch `/effort` in Claude Code.** Every time you send a message, [TypeSafe](https://typesafe.ai)'s Jev model reads it and judges which effort level the task deserves. When your current level is off, Claude says so on the first line of its reply:
 
-```
-> train.py crashes on the last value, find out why and fix it properly      (session on low)
+<p align="center"><img src="assets/demo.png" width="760" alt="Claude Code on low effort gets a bug report; the plugin tips /effort high and Claude repeats the tip on the first line of its reply"></p>
 
-Effort tip: this looks like a `high` task and we're on `low`. `/effort high` applies from your next message.
-The last value crashed because it's `grad = 0.0`, and `step()` computes `math.log(grad)`...
-```
-
-That's a real run from our tests. The plugin only suggests. It never switches effort for you, and it never blocks your message.
+A real session: Claude Code on `low`, asked to fix a pagination bug. Jev flags it as a `high` task with 0.99 confidence, and the tip lands on the first line of Claude's reply. The plugin only suggests. It never switches effort for you, and it never blocks your message.
 
 ## Install
 
