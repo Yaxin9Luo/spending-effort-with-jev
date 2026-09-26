@@ -325,5 +325,89 @@ class SessionStart(Base):
         self.assertTrue((self.tmp / "bin" / "effort_advisor.py").exists())
 
 
+class Context(Base):
+    def write(self, path, entries):
+        path.write_text("".join(json.dumps(e) + "\n" for e in entries))
+
+    def msg(self, uuid, parent, role, text):
+        return {"uuid": uuid, "parentUuid": parent, "type": role,
+                "message": {"role": role, "content": text}}
+
+    def test_follows_the_live_branch_after_a_rewind(self):
+        f = self.tmp / "t.jsonl"
+        self.write(f, [self.msg("a", None, "user", "fix the bug"),
+                       self.msg("b", "a", "assistant", "old answer, rewound away"),
+                       self.msg("c", "a", "assistant", "kept answer"),
+                       self.msg("d", "c", "user", "now add a test")])
+        texts = [t["text"] for t in ea.recent_turns(str(f))]
+        self.assertEqual(texts, ["fix the bug", "kept answer", "now add a test"])
+
+    def test_waits_for_a_transcript_written_late(self):
+        import threading
+        f = self.tmp / "late.jsonl"
+        threading.Timer(0.4, lambda: self.write(f, [self.msg("a", None, "user", "hi")])).start()
+        self.assertEqual(ea.recent_turns(str(f), wait_s=2)[0]["text"], "hi")
+
+    def test_file_order_when_there_are_no_uuids(self):
+        f = self.tmp / "old.jsonl"
+        self.write(f, [{"type": "user", "message": {"content": "one"}},
+                       {"type": "assistant", "message": {"content": [{"type": "text", "text": "two"}]}}])
+        self.assertEqual([t["text"] for t in ea.recent_turns(str(f))], ["one", "two"])
+
+    def test_falls_back_to_the_reply_saved_at_stop(self):
+        self.stop("low", last_assistant_message="Want me to add it?")
+        seen = {}
+        def fake(key, prompt, turns):
+            seen["turns"] = turns
+            return answers("medium")
+        ea.ask_jev = fake
+        self.event({"hook_event_name": "UserPromptSubmit", "session_id": "s",
+                    "prompt": "add it and push", "transcript_path": str(self.tmp / "missing.jsonl")})
+        self.assertEqual(seen["turns"], [{"role": "assistant", "text": "Want me to add it?"}])
+
+    def test_fresh_session_does_not_wait_for_a_transcript(self):
+        self.event({"hook_event_name": "SessionStart", "session_id": "s", "source": "startup"})
+        ea.ask_jev = lambda *a: answers("low")
+        t = time.time()
+        self.event({"hook_event_name": "UserPromptSubmit", "session_id": "s",
+                    "prompt": "what is this repo", "transcript_path": str(self.tmp / "none.jsonl")})
+        self.assertLess(time.time() - t, 0.5)
+
+
+class FirstMessageCheck(Base):
+    def setUp(self):
+        super().setUp()
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
+
+    def test_first_message_asks_claude_to_check_the_live_level(self):
+        out = self.prompt("low", 0.96)
+        self.assertIn("Claude will check your level", out["systemMessage"])
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("echo $CLAUDE_EFFORT", ctx)
+        self.assertIn("don't mention this check", ctx)
+
+    def test_next_message_is_not_compared_after_the_check_turn(self):
+        self.prompt("low", 0.96)
+        self.stop("max")  # Claude checked; maybe asked
+        self.assertIn("fits this", self.line("low", text="what is 2+2"))
+
+    def test_no_check_without_ask_first(self):
+        del os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"]
+        self.assertNotIn("hookSpecificOutput", self.prompt("low", 0.96))
+
+    def test_no_check_when_unsure_or_after_an_interrupted_tip(self):
+        self.assertNotIn("hookSpecificOutput", self.prompt("high", 0.5))
+        self.stop("low")
+        self.prompt("high")                   # asks (up)
+        out = self.prompt("high", text="fix the pagination bug")  # Esc'd, resent
+        self.assertNotIn("hookSpecificOutput", out)
+
+    def test_quiet_still_passes_the_check_to_claude(self):
+        os.environ["CLAUDE_PLUGIN_OPTION_QUIET"] = "true"
+        out = self.prompt("low", 0.96)
+        self.assertNotIn("systemMessage", out)
+        self.assertIn("echo $CLAUDE_EFFORT", out["hookSpecificOutput"]["additionalContext"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -73,6 +73,18 @@ MESSAGES = {
         "match_last": "✓ effort: {rec} fits ({conf:.2f}) · same as last turn",
         "match_now": "✓ effort: {rec} fits ({conf:.2f}) · you're on it",
         "fits": "○ effort: {rec} fits this ({conf:.2f})",
+        "fits_check": "○ effort: {rec} fits this ({conf:.2f}) · Claude will check your level",
+        "check": "[spending-effort-with-jev] Jev judged that this request fits {rec} effort "
+                 "(confidence {conf:.2f}). The session's current effort level isn't known "
+                 "to the plugin yet, but it's in the CLAUDE_EFFORT environment variable. "
+                 "The user asked to be checked with when the level looks wrong. Before "
+                 "doing anything else, run `echo $CLAUDE_EFFORT`. If that level is a step "
+                 "or more away from {rec} (order: low, medium, high, xhigh, max; xhigh "
+                 "counts as close to both high and max), reply in one short line: say this "
+                 "looks like a {rec}-effort task and name the session's level, and ask "
+                 "whether to switch with {how} and then say continue, or go ahead as is. "
+                 "Then stop and wait for the answer. Otherwise carry on with the task and "
+                 "don't mention this check.",
         "unsure": "○ effort: maybe {rec} ({conf:.2f}), not sure · keep your level",
         "unclear": "○ effort: nothing to judge here · keep your level",
         "ambiguous": "⚠ effort: long run, fuzzy spec → have Claude interview you, then go max",
@@ -107,6 +119,14 @@ MESSAGES = {
         "match_last": "✓ effort：{rec} 正合适（{conf:.2f}）· 和上一轮一样",
         "match_now": "✓ effort：{rec} 正合适（{conf:.2f}）· 就是当前档位",
         "fits": "○ effort：这条适合 {rec}（{conf:.2f}）",
+        "fits_check": "○ effort：这条适合 {rec}（{conf:.2f}）· Claude 会先核对当前档位",
+        "check": "[spending-effort-with-jev] Jev 判断这条请求适合 {rec} effort"
+                 "（置信度 {conf:.2f}）。插件还不知道当前会话的档位，但它在环境变量 "
+                 "CLAUDE_EFFORT 里。用户要求档位不对时先确认再开工。在做任何事之前，先运行 "
+                 "`echo $CLAUDE_EFFORT`。如果这个档位和 {rec} 差一档以上（顺序：low、medium、"
+                 "high、xhigh、max；xhigh 与 high、max 都算接近），就先用一句中文回复：说明这像是 "
+                 "{rec} 档的任务、当前是哪一档，问用户是用{how}切到 {rec} 后回复“继续”，"
+                 "还是保持现在的档位直接做，然后停下来等回答。否则直接做任务，不要提这次核对。",
         "unsure": "○ effort：可能是 {rec}（{conf:.2f}），把握不大 · 保持当前档位",
         "unclear": "○ effort：这条看不出任务 · 保持当前档位",
         "ambiguous": "⚠ effort：要放手长跑，但需求有歧义 → 先让 Claude 采访你，再切到 max",
@@ -147,31 +167,62 @@ def option(name):
 
 # ---------------------------------------------------------------- Jev
 
-def recent_turns(transcript_path, n=6, limit=600):
-    """Last n user/assistant text messages, each truncated."""
-    turns = []
+def _text(entry):
+    content = (entry.get("message") or {}).get("content")
+    if isinstance(content, list):
+        text = " ".join(c.get("text", "") for c in content
+                        if isinstance(c, dict) and c.get("type") == "text")
+    else:
+        text = content if isinstance(content, str) else ""
+    text = text.strip()
+    return "" if text.startswith("<") else text
+
+
+def _tail(transcript_path, lines=400):
     try:
         with open(transcript_path) as f:
-            lines = f.readlines()[-400:]
+            raw = f.readlines()[-lines:]
     except Exception:
-        return turns
-    for line in lines:
+        return []
+    entries = []
+    for line in raw:
         try:
-            e = json.loads(line)
+            entries.append(json.loads(line))
         except Exception:
-            continue
-        role = e.get("type")
-        if role not in ("user", "assistant"):
-            continue
-        content = (e.get("message") or {}).get("content")
-        if isinstance(content, list):
-            text = " ".join(c.get("text", "") for c in content
-                            if isinstance(c, dict) and c.get("type") == "text")
-        else:
-            text = content if isinstance(content, str) else ""
-        text = text.strip()
-        if text and not text.startswith("<"):
-            turns.append({"role": role, "text": text[:limit]})
+            pass
+    return entries
+
+
+def recent_turns(transcript_path, n=6, limit=600, wait_s=2.0):
+    """Last n user/assistant text messages on the live branch, each truncated.
+
+    A session forked by a rewind can have its transcript written a moment
+    after the prompt hook runs, so wait briefly if it isn't there yet. A
+    rewind can also leave abandoned branches in the file, so follow parentUuid
+    back from the newest entry instead of reading lines in order.
+    """
+    deadline = time.time() + wait_s
+    entries = _tail(transcript_path)
+    while not entries and transcript_path and time.time() < deadline:
+        time.sleep(0.25)
+        entries = _tail(transcript_path)
+    turns = []
+    by_uuid = {e["uuid"]: e for e in entries if e.get("uuid")}
+    cur = next((e for e in reversed(entries) if e.get("uuid")), None)
+    seen = set()
+    while cur and len(turns) < n and cur["uuid"] not in seen:
+        seen.add(cur["uuid"])
+        if cur.get("type") in ("user", "assistant") and not cur.get("isSidechain"):
+            text = _text(cur)
+            if text:
+                turns.append({"role": cur["type"], "text": text[:limit]})
+        cur = by_uuid.get(cur.get("parentUuid"))
+    if turns:
+        return turns[::-1]
+    # No uuid chain (older formats): fall back to file order.
+    for e in entries:
+        if e.get("type") in ("user", "assistant") and _text(e):
+            turns.append({"role": e["type"], "text": _text(e)[:limit]})
     return turns[-n:]
 
 
@@ -340,7 +391,15 @@ def on_prompt(data):
             emit({"systemMessage": m["unclear"]})
         return
     try:
-        answers = ask_jev(key, prompt, recent_turns(data.get("transcript_path", "")))
+        # A brand-new session has no history to wait for; a rewind/fork does.
+        fresh = (read_json(state_file("session", session)) or {}).get("source") in ("startup", "clear")
+        turns = recent_turns(data.get("transcript_path", ""), wait_s=0 if fresh else 2.0)
+        if not turns:
+            # Transcript not readable yet: fall back to Claude's last reply,
+            # which the Stop hook saved.
+            last = (read_json(state_file("turn", session)) or {}).get("last")
+            turns = [{"role": "assistant", "text": last}] if last else []
+        answers = ask_jev(key, prompt, turns)
     except Exception as e:
         if getattr(e, "code", None) in (401, 403):
             emit({"systemMessage": m["bad_key"]})
@@ -362,24 +421,37 @@ def on_prompt(data):
               and tip.get("cur") == current and turn.get("t", 0) > tip.get("t", 0))
     ask = option("ask_first") and not repeat
     kind, text = status(answers, current, source, lang(), ask, repeat, in_desktop_app())
+    # No level seen yet in this session (first message, or right after a model
+    # switch): with ask_first on, have Claude read the live level and ask only
+    # if it's off. Not after an interrupted tip or an ask turn: the user just
+    # decided there, and asking again would nag.
+    check = ask and kind == "fits" and source == "unknown"
+    if check:
+        text = m["fits_check"].format(rec=eff["choice"], conf=eff.get("confidence", 0))
     now = time.time()
     write_json(state_file("advice", session),
                {"kind": kind, "rec": eff["choice"], "conf": eff.get("confidence", 0), "t": now})
-    if kind in ("up", "down"):
+    if kind in ("up", "down") or check:
+        # "asked": Claude may ask this turn, so the level recorded when it
+        # ends can't be trusted for the next message (see on_stop).
         write_json(state_file("tip", session),
-                   {"rec": eff["choice"], "cur": current, "t": now,
-                    "asked": ask})
+                   {"rec": eff["choice"], "cur": current, "t": now, "asked": ask})
     if quiet and kind not in ("up", "down", "ambiguous"):
-        return
-    out = {"systemMessage": text}
+        text = None
+    out = {"systemMessage": text} if text else {}
+    how = m["how_desktop" if in_desktop_app() else "how_terminal"].format(rec=eff["choice"])
     if kind in ("up", "down") and ask:
-        out["hookSpecificOutput"] = {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": m["ask"].format(
-                rec=eff["choice"], conf=eff.get("confidence", 0), cur=current,
-                how=m["how_desktop" if in_desktop_app() else "how_terminal"].format(
-                    rec=eff["choice"]))}
-    emit(out)
+        context = m["ask"].format(rec=eff["choice"], conf=eff.get("confidence", 0),
+                                  cur=current, how=how)
+    elif check:
+        context = m["check"].format(rec=eff["choice"], conf=eff.get("confidence", 0), how=how)
+    else:
+        context = None
+    if context:
+        out["hookSpecificOutput"] = {"hookEventName": "UserPromptSubmit",
+                                     "additionalContext": context}
+    if out:
+        emit(out)
 
 
 def on_stop(data):
@@ -389,7 +461,8 @@ def on_stop(data):
     if not level:
         return
     session = data.get("session_id")
-    rec = {"level": level, "t": time.time()}
+    rec = {"level": level, "t": time.time(),
+           "last": (data.get("last_assistant_message") or "")[:600]}
     tip = read_json(state_file("tip", session)) or {}
     if tip.get("asked"):
         rec["after_ask"] = True
@@ -404,6 +477,8 @@ def on_model_switch(data):
 
 
 def on_session_start(data):
+    write_json(state_file("session", data.get("session_id")),
+               {"source": data.get("source"), "t": time.time()})
     cutoff = time.time() - STATE_TTL_S
     for pattern in ("effort-*", "last-*.json", "pending-*.json"):  # v0.1.x leftovers
         for f in STATE_DIR.glob(pattern):

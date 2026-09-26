@@ -46,7 +46,7 @@ Paste your key when Claude Code asks, or leave it empty and `export TYPESAFE_API
 | `⬆ effort: needs high (0.99) · was low → Esc, /effort high, continue` | Needs more effort than you have. The first time, it tells you how to switch (in the desktop app: "stop, set high in the bar, continue"); if you stay put, later repeats are shorter. |
 | `⬇ effort: low is enough (0.95) · was max → /effort low` | You're spending more than this needs. |
 | `✓ effort: medium fits (0.91) · same as last turn` | You're on the right level. |
-| `○ effort: high fits this (0.98)` | The recommendation, when there's nothing trustworthy to compare with yet (a session's first message, or right after you pressed Esc to switch). |
+| `○ effort: high fits this (0.98)` | The recommendation, when there's nothing trustworthy to compare with yet (a session's first message, or right after you pressed Esc to switch). With `ask_first`, the first message adds "· Claude will check your level". |
 | `○ effort: maybe high (0.55), not sure · keep your level` | Jev isn't confident, so no advice. |
 | `○ effort: nothing to judge here · keep your level` | "ok", "continue" and the like. Answered instantly, without calling Jev. |
 | `⚠ effort: long run, fuzzy spec → have Claude interview you, then go max` | A long hands-off task with open questions. More effort won't fix a wrong reading of the task; a few questions first will. |
@@ -56,7 +56,7 @@ The number is Jev's confidence. **"was low"** is the level your last completed t
 ## Acting on a tip
 
 - **To apply it to the current message:** stop Claude, switch, then send `continue`. Claude still has your request and picks it up at the new level. In the terminal that's Esc and `/effort high`; in the desktop app it's the stop button and the effort control in the bar under the input box. The line is worded for the client you're in. This works the same in both: once a message is sent, Claude starts at the current level, and a switch applies from the next message.
-- **Or let Claude wait for you:** turn on `ask_first`. When a message looks like it needs a different level, higher or lower, Claude asks whether to switch before it does any work, and waits for your answer. On `max` for a quick question, it offers to drop to `low`; on `low` for a tricky bug, it offers `high`. It asks once per situation; if you choose to stay, it won't keep asking. This is the easiest way in the desktop app.
+- **Or let Claude wait for you:** turn on `ask_first`. When a message looks like it needs a different level, higher or lower, Claude asks whether to switch before it does any work, and waits for your answer. On `max` for a quick question, it offers to drop to `low`; on `low` for a tricky bug, it offers `high`. It asks once per situation; if you choose to stay, it won't keep asking. On a session's first message, when the plugin hasn't seen your level yet, Claude reads it first (one quick `echo $CLAUDE_EFFORT`) and asks only if it's off. This is the easiest way in the desktop app.
 - In the terminal, `/effort <level>` also saves that level as your default for the model; to change just this session, open `/effort` and press `s`. In the desktop app, use the effort control under the input box. (Typing `/effort <level>` there also works but changes this session only, and the label under the input box may keep showing the old level.)
 
 ## Options
@@ -137,7 +137,7 @@ Claude Code doesn't let a session raise its own effort, so switching stays with 
 
 ## Privacy and cost
 
-- **Privacy:** each message you send, plus up to six recent text turns (600 characters each), goes to `api.typesafe.ai`. Don't install the plugin if that's not OK for your work.
+- **Privacy:** each message you send, plus up to six recent text turns (600 characters each) from the current branch of the conversation (rewinds respected), goes to `api.typesafe.ai`. Don't install the plugin if that's not OK for your work.
 - **Cost:** Jev is cheap. The 220-message evaluation above cost a few cents.
 - **Speed:** besides the Jev call, the hooks cost about 35 ms per message and per turn. Slash commands and go-aheads skip Jev. If the API doesn't answer in 6 s, you get "no tip this time" and your message goes through.
 
