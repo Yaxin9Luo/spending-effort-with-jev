@@ -1,31 +1,38 @@
 #!/usr/bin/env python3
-"""Suggest /effort switches, judged by TypeSafe's Jev.
+"""Show a Jev-judged effort recommendation the moment a message is sent.
 
-One script serves three hook events:
-- UserPromptSubmit: ask Jev which level the new message's task deserves and
-  save that as pending for the session. (This event doesn't carry the current
-  effort level, so nothing is compared yet.)
-- PreToolUse: on the turn's first tool call, compare the pending advice with
-  the real current level (`effort.level` in the hook input). If they differ,
-  show a notice and ask the main agent to say it in one line of its reply, so
-  the user sees it without opening the notice.
-- Stop: for turns with no tool calls, compare and show a notice.
+Hook events (one script, dispatched on hook_event_name):
+- UserPromptSubmit: ask Jev which effort level the message's task deserves and
+  show one line right away, before Claude starts working.
+- Stop: remember the effort level the turn ran on. UserPromptSubmit isn't given
+  the current level, and a typed `/effort` reaches no hook, so the comparison
+  uses the last completed turn (or the live level, if the optional status line
+  is installed).
+- PostModelSwitch: forget the level, since effort is saved per model.
+- SessionStart: prune old state and refresh the status-line copy.
 
 Hooks can't change effort, and Claude Code won't let a session raise its own
-effort, so the switch stays with the user. Never blocks; failures exit silently.
+effort, so the switch stays with the user. Never blocks; failures exit quietly.
 """
 import json
 import os
+import shutil
 import sys
-import urllib.request
+import time
 from pathlib import Path
 
-CONFIDENCE_MIN = 0.7      # below this, say nothing (chosen on eval dev split)
+CONFIDENCE_MIN = 0.7      # below this, only say "maybe" (chosen on eval dev split)
 AMBIGUITY_MIN = 0.7       # "clarify first" tip (repeated-split CV plateau 0.7-0.8)
 TIMEOUT_S = 6
+STATE_TTL_S = 14 * 24 * 3600
 STATE_DIR = Path(os.environ.get("CLAUDE_PLUGIN_DATA")
                  or Path.home() / ".claude" / "spending-effort-with-jev")
 RANK = {"low": 0, "medium": 1, "high": 2, "xhigh": 2.5, "max": 3}
+# Bare go-aheads carry no task to judge (Jev answers "unclear" for them), so
+# they get their line at once instead of waiting on the network.
+GO_AHEADS = {"ok", "okay", "k", "kk", "yes", "y", "yep", "yeah", "sure", "go", "go on",
+             "go ahead", "continue", "proceed", "do it", "lgtm", "sounds good",
+             "继续", "继续吧", "好", "好的", "行", "可以", "嗯", "对", "是", "开始", "开始吧"}
 
 EFFORT_CRITERIA = {
     "low": "Quick back-and-forth with the user watching: questions, brainstorming, "
@@ -45,46 +52,65 @@ EFFORT_CRITERIA = {
                "A question the user asks is never unclear.",
 }
 
-
+# Hook notices are plain text (no markdown), so no backticks. Keep lines short:
+# Claude Code prefixes them with "UserPromptSubmit says: ".
 MESSAGES = {
     "en": {
-        "ambiguous": "Effort tip: this looks like a long hands-off task, but the "
-                     "requirements are still ambiguous. Have Claude interview you to "
-                     "fill in the spec first, then `/effort max`.",
-        "switch": "Effort tip: `/effort {rec}` (now {current}, confidence {conf:.2f})",
-        "agent_switch": "[spending-effort-with-jev] Jev judged that the user's latest "
-                        "request fits effort `{rec}`, but this session runs at "
-                        "`{current}`. Make the first line of your reply to the user "
-                        "a short tip, e.g. \"Effort tip: this looks like a `{rec}` task and "
-                        "we're on `{current}`. `/effort {rec}` applies from your next "
-                        "message.\" Then carry on with the task as you would anyway; "
-                        "don't wait for an answer.",
-        "agent_ambiguous": "[spending-effort-with-jev] Jev judged that the user is "
-                           "handing off a long autonomous task whose requirements are "
-                           "still ambiguous. Make the first line of your reply a short "
-                           "note saying so, and offer to ask a few questions to pin down "
-                           "the spec before a long `/effort max` run.",
+        "now": "now {cur}",
+        "last": "was {cur}",
+        "up": "⬆ effort: needs {rec} ({conf:.2f}) · {where} → Esc, /effort {rec}, continue",
+        "up_ask": "⬆ effort: needs {rec} ({conf:.2f}) · {where} → Claude will check with you",
+        "down": "⬇ effort: {rec} is enough ({conf:.2f}) · {where} → /effort {rec}",
+        "up_again": "⬆ effort: needs {rec} ({conf:.2f}) · {where}",
+        "down_again": "⬇ effort: {rec} is enough ({conf:.2f}) · {where}",
+        "match_last": "✓ effort: {rec} fits ({conf:.2f}) · same as last turn",
+        "match_now": "✓ effort: {rec} fits ({conf:.2f}) · you're on it",
+        "fits": "○ effort: {rec} fits this ({conf:.2f})",
+        "unsure": "○ effort: maybe {rec} ({conf:.2f}), not sure · keep your level",
+        "unclear": "○ effort: nothing to judge here · keep your level",
+        "ambiguous": "⚠ effort: long run, fuzzy spec → have Claude interview you, then /effort max",
+        "error": "○ effort: no tip this time (Jev didn't answer)",
+        "bad_key": "⚠ effort: TypeSafe rejected the API key · check it in /plugin",
         "no_key": "spending-effort-with-jev: no TypeSafe API key found, so effort "
-                  "tips are off. Set it in /plugin config or export TYPESAFE_API_KEY. "
+                  "tips are off. Set it in /plugin or export TYPESAFE_API_KEY. "
                   "Get a key at https://typesafe.ai",
+        "ask": "[spending-effort-with-jev] Jev judged that this request needs "
+               "{rec} effort (confidence {conf:.2f}), but the session is on {cur}. "
+               "The user asked to be checked with before work starts in this case. "
+               "Before doing anything else, reply in one short line: say this looks "
+               "like a {rec}-effort task and the session is on {cur}, and ask whether "
+               "to switch with /effort {rec} and then say continue, or go ahead as is. "
+               "Then stop and wait for the answer.",
     },
     "zh": {
-        "ambiguous": "effort 建议：这像是要放手长跑的任务，但需求还有歧义。"
-                     "先让 Claude 采访你补全需求，再 `/effort max`。",
-        "switch": "effort 建议：`/effort {rec}`（当前 {current}，置信度 {conf:.2f}）",
-        "agent_switch": "[spending-effort-with-jev] Jev 判断用户最新这条请求适合 effort "
-                        "`{rec}`，但当前会话是 `{current}`。请把回复的第一行写成一句中文提示，"
-                        "例如：“effort 建议：这像是 `{rec}` 档的任务，当前是 `{current}`，"
-                        "输入 `/effort {rec}` 从下一条消息起生效。”然后照常完成任务，不用等回复。",
-        "agent_ambiguous": "[spending-effort-with-jev] Jev 判断用户在交代一个要长时间自主"
-                           "完成的任务，但需求还有歧义。请把回复的第一行写成一句中文提示，"
-                           "并提出先问几个问题把需求补全，再用 `/effort max` 放手跑。",
+        "now": "当前 {cur}",
+        "last": "上一轮 {cur}",
+        "up": "⬆ effort：需要 {rec}（{conf:.2f}）· {where} → Esc、/effort {rec}、再发“继续”",
+        "up_ask": "⬆ effort：需要 {rec}（{conf:.2f}）· {where} → Claude 会先问你要不要切",
+        "down": "⬇ effort：{rec} 就够（{conf:.2f}）· {where} → /effort {rec}",
+        "up_again": "⬆ effort：需要 {rec}（{conf:.2f}）· {where}",
+        "down_again": "⬇ effort：{rec} 就够（{conf:.2f}）· {where}",
+        "match_last": "✓ effort：{rec} 正合适（{conf:.2f}）· 和上一轮一样",
+        "match_now": "✓ effort：{rec} 正合适（{conf:.2f}）· 就是当前档位",
+        "fits": "○ effort：这条适合 {rec}（{conf:.2f}）",
+        "unsure": "○ effort：可能是 {rec}（{conf:.2f}），把握不大 · 保持当前档位",
+        "unclear": "○ effort：这条看不出任务 · 保持当前档位",
+        "ambiguous": "⚠ effort：要放手长跑，但需求有歧义 → 先让 Claude 采访你，再 /effort max",
+        "error": "○ effort：Jev 没响应，这次没有建议",
+        "bad_key": "⚠ effort：TypeSafe 拒绝了这个 API key，请在 /plugin 里检查",
         "no_key": "spending-effort-with-jev：没找到 TypeSafe API key，effort 建议已关闭。"
-                  "在 /plugin 配置里填写，或设置环境变量 TYPESAFE_API_KEY。"
+                  "在 /plugin 里填写，或设置环境变量 TYPESAFE_API_KEY。"
                   "申请地址：https://typesafe.ai",
+        "ask": "[spending-effort-with-jev] Jev 判断这条请求需要 {rec} effort"
+               "（置信度 {conf:.2f}），但当前会话是 {cur}。用户要求这种情况下先确认再开工。"
+               "在做任何事之前，先用一句中文回复：说明这像是 {rec} 档的任务、当前是 {cur}，"
+               "问用户是用 /effort {rec} 切档后回复“继续”，还是保持现在的档位直接做。"
+               "然后停下来等回答。",
     },
 }
 
+
+# ---------------------------------------------------------------- config
 
 def api_key():
     return (os.environ.get("CLAUDE_PLUGIN_OPTION_TYPESAFE_API_KEY")
@@ -95,6 +121,13 @@ def lang():
     v = (os.environ.get("CLAUDE_PLUGIN_OPTION_LANGUAGE") or "en").strip().lower()
     return v if v in MESSAGES else "en"
 
+
+def option(name):
+    v = os.environ.get(f"CLAUDE_PLUGIN_OPTION_{name.upper()}", "")
+    return v.strip().lower() in ("1", "true", "yes", "on")
+
+
+# ---------------------------------------------------------------- Jev
 
 def recent_turns(transcript_path, n=6, limit=600):
     """Last n user/assistant text messages, each truncated."""
@@ -125,6 +158,7 @@ def recent_turns(transcript_path, n=6, limit=600):
 
 
 def ask_jev(key, prompt, turns):
+    import urllib.request  # imported here so Stop/SessionStart stay fast
     state = {
         "new_message": prompt[:4000],
         "recent_conversation": turns,
@@ -167,6 +201,8 @@ def ask_jev(key, prompt, turns):
         return json.load(r)["answers"]
 
 
+# ---------------------------------------------------------------- judgement
+
 def suggestion(answers, current):
     """Return "ambiguous", a level to switch to, or None."""
     eff = answers["effort"]
@@ -180,17 +216,39 @@ def suggestion(answers, current):
     return rec
 
 
-def decide(answers, current, language="en"):
-    """Return a message for the user, or None."""
-    m = MESSAGES[language]
-    s = suggestion(answers, current)
-    if s is None:
-        return None
-    if s == "ambiguous":
-        return m["ambiguous"]
-    conf = answers["effort"].get("confidence", 0)
-    return m["switch"].format(rec=s, current=current, conf=conf)
+def status(answers, current, source="turn", language="en", ask=False, repeat=False):
+    """Classify the advice and render its line. Returns (kind, text).
 
+    kind: ambiguous | unclear | unsure | fits | match | up | down.
+    `current` is None when no trustworthy level is known; then nothing is
+    compared. `source` is "live" (status line) or "turn" (last Stop).
+    `repeat` means the same switch was already suggested for this level on the
+    previous message and the user stayed put: say it briefly, without steps.
+    """
+    m = MESSAGES[language]
+    eff = answers["effort"]
+    rec, conf = eff["choice"], eff.get("confidence", 0)
+    if answers["handoff_ambiguous"]["noul"] >= AMBIGUITY_MIN:
+        return "ambiguous", m["ambiguous"]
+    if rec == "unclear":
+        return "unclear", m["unclear"]
+    if conf < CONFIDENCE_MIN:
+        return "unsure", m["unsure"].format(rec=rec, conf=conf)
+    if current not in RANK:
+        return "fits", m["fits"].format(rec=rec, conf=conf)
+    live = source == "live"
+    where = m["now" if live else "last"].format(cur=current)
+    if suggestion(answers, current) is None:
+        return "match", m["match_now" if live else "match_last"].format(rec=rec, conf=conf)
+    kind = "up" if RANK[rec] > RANK[current] else "down"
+    if repeat:
+        return kind, m[kind + "_again"].format(rec=rec, conf=conf, where=where)
+    if kind == "up" and ask:
+        return kind, m["up_ask"].format(rec=rec, conf=conf, where=where)
+    return kind, m[kind].format(rec=rec, conf=conf, where=where)
+
+
+# ---------------------------------------------------------------- state
 
 def state_file(kind, session_id):
     return STATE_DIR / f"{kind}-{session_id or 'x'}.json"
@@ -203,62 +261,154 @@ def read_json(path):
         return None
 
 
+def write_json(path, obj):
+    tmp = path.with_suffix(f".tmp{os.getpid()}")
+    tmp.write_text(json.dumps(obj))
+    os.replace(tmp, path)
+
+
+def current_level(session_id):
+    """Best known effort level for the session: (level or None, source).
+
+    The status line (if installed) reports the live level; prefer it while
+    it's at least as recent as the last completed turn. Otherwise use the last
+    completed turn, unless a switch tip was shown after it: that turn never
+    finished, most likely because the user pressed Esc to switch, so the
+    recorded level can't be trusted.
+    """
+    turn = read_json(state_file("turn", session_id)) or {}
+    live = read_json(state_file("live", session_id)) or {}
+    tip = read_json(state_file("tip", session_id)) or {}
+    if live.get("level") and live.get("t", 0) >= turn.get("t", 0):
+        return live["level"], "live"
+    if not turn.get("level"):
+        return None, "unknown"
+    if tip.get("t", 0) > turn.get("t", 0):
+        return None, "interrupted"
+    if turn.get("after_ask"):
+        # That turn was Claude asking whether to switch; the user may have
+        # switched since, and no hook can see it.
+        return None, "asked"
+    return turn["level"], "turn"
+
+
+# ---------------------------------------------------------------- events
+
+def emit(obj):
+    print(json.dumps(obj, ensure_ascii=False))
+
+
 def on_prompt(data):
-    session = data.get("session_id")
-    pending = state_file("pending", session)
-    pending.unlink(missing_ok=True)
     prompt = (data.get("prompt") or "").strip()
     if not prompt or prompt.startswith("/"):
         return
+    m = MESSAGES[lang()]
     key = api_key()
     if not key:
         # Tell the user once, then stay quiet.
         flag = STATE_DIR / "no-key-notice-shown"
         if not flag.exists():
             flag.touch()
-            print(json.dumps({"systemMessage": MESSAGES[lang()]["no_key"]},
-                             ensure_ascii=False))
+            emit({"systemMessage": m["no_key"]})
         return
-    answers = ask_jev(key, prompt, recent_turns(data.get("transcript_path", "")))
-    pending.write_text(json.dumps(answers))
-
-
-def on_turn_event(data, event):
-    """PreToolUse or Stop: compare pending advice with the real current level."""
     session = data.get("session_id")
-    pending = state_file("pending", session)
-    answers = read_json(pending)
-    if answers is None:
+    quiet = option("quiet")
+    if prompt.lower().strip(" \t\n.!。！~～") in GO_AHEADS:
+        if not quiet:
+            emit({"systemMessage": m["unclear"]})
         return
-    pending.unlink(missing_ok=True)
-    current = ((data.get("effort") or {}).get("level")
-               or os.environ.get("CLAUDE_EFFORT") or "unknown")
-    tip = suggestion(answers, current)
+    try:
+        answers = ask_jev(key, prompt, recent_turns(data.get("transcript_path", "")))
+    except Exception as e:
+        if getattr(e, "code", None) in (401, 403):
+            emit({"systemMessage": m["bad_key"]})
+        elif not quiet:
+            emit({"systemMessage": m["error"]})
+        return
+    current, source = current_level(session)
+    tip = read_json(state_file("tip", session)) or {}
+    turn = read_json(state_file("turn", session)) or {}
+    if tip.get("asked") and tip.get("t", 0) > turn.get("t", 0):
+        # Claude's "switch first?" turn was interrupted, so it never became
+        # the completed turn that on_stop marks as untrustworthy.
+        tip["asked"] = False
+        write_json(state_file("tip", session), tip)
+    eff = answers["effort"]
+    # Same switch, same level as last time, and the user let that turn run:
+    # they've seen the steps and chose to stay, so be brief and don't ask again.
+    repeat = (bool(current) and tip.get("rec") == eff["choice"]
+              and tip.get("cur") == current and turn.get("t", 0) > tip.get("t", 0))
+    ask = option("ask_before_upgrade") and not repeat
+    kind, text = status(answers, current, source, lang(), ask, repeat)
+    now = time.time()
+    write_json(state_file("advice", session),
+               {"kind": kind, "rec": eff["choice"], "conf": eff.get("confidence", 0), "t": now})
+    if kind in ("up", "down"):
+        write_json(state_file("tip", session),
+                   {"rec": eff["choice"], "cur": current, "t": now,
+                    "asked": kind == "up" and ask})
+    if quiet and kind not in ("up", "down", "ambiguous"):
+        return
+    out = {"systemMessage": text}
+    if kind == "up" and ask:
+        out["hookSpecificOutput"] = {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": m["ask"].format(
+                rec=eff["choice"], conf=eff.get("confidence", 0), cur=current)}
+    emit(out)
 
-    # Don't repeat the same suggestion on consecutive prompts in a session.
-    last_file = state_file("last", session)
-    last = (read_json(last_file) or {}).get("tip")
-    last_file.write_text(json.dumps({"tip": tip}))
-    if not tip or tip == last:
+
+def on_stop(data):
+    if data.get("agent_id"):
         return
-    m = MESSAGES[lang()]
-    out = {"systemMessage": decide(answers, current, lang())}
-    if event == "PreToolUse":
-        agent = (m["agent_ambiguous"] if tip == "ambiguous"
-                 else m["agent_switch"].format(rec=tip, current=current))
-        out["hookSpecificOutput"] = {"hookEventName": "PreToolUse",
-                                     "additionalContext": agent}
-    print(json.dumps(out, ensure_ascii=False))
+    level = (data.get("effort") or {}).get("level")
+    if not level:
+        return
+    session = data.get("session_id")
+    rec = {"level": level, "t": time.time()}
+    tip = read_json(state_file("tip", session)) or {}
+    if tip.get("asked"):
+        rec["after_ask"] = True
+        tip["asked"] = False
+        write_json(state_file("tip", session), tip)
+    write_json(state_file("turn", session), rec)
+
+
+def on_model_switch(data):
+    for kind in ("turn", "live", "tip"):
+        state_file(kind, data.get("session_id")).unlink(missing_ok=True)
+
+
+def on_session_start(data):
+    cutoff = time.time() - STATE_TTL_S
+    for pattern in ("effort-*", "last-*.json", "pending-*.json"):  # v0.1.x leftovers
+        for f in STATE_DIR.glob(pattern):
+            f.unlink(missing_ok=True)
+    for f in STATE_DIR.glob("*-*.json"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError:
+            pass
+    # Keep a copy of the status-line script at a path that survives plugin
+    # updates, so a statusLine setting can point at it.
+    here = Path(__file__).resolve().parent
+    bin_dir = STATE_DIR / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    for name in ("effort_advisor.py", "statusline.py"):
+        if (here / name).exists():
+            shutil.copyfile(here / name, bin_dir / name)
 
 
 def main():
     data = json.load(sys.stdin)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     event = data.get("hook_event_name", "UserPromptSubmit")
-    if event == "UserPromptSubmit":
-        on_prompt(data)
-    elif event in ("PreToolUse", "Stop"):
-        on_turn_event(data, event)
+    handler = {"UserPromptSubmit": on_prompt, "Stop": on_stop,
+               "PostModelSwitch": on_model_switch,
+               "SessionStart": on_session_start}.get(event)
+    if handler:
+        handler(data)
 
 
 if __name__ == "__main__":
