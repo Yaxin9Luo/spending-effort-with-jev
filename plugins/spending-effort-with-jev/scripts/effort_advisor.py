@@ -58,7 +58,9 @@ MESSAGES = {
     "en": {
         "now": "now {cur}",
         "last": "was {cur}",
-        "up": "⬆ effort: needs {rec} ({conf:.2f}) · {where} → Esc, /effort {rec}, continue",
+        "up": "⬆ effort: needs {rec} ({conf:.2f}) · {where} → {stop}, /effort {rec}, continue",
+        "stop_terminal": "Esc",
+        "stop_desktop": "stop",
         "up_ask": "⬆ effort: needs {rec} ({conf:.2f}) · {where} → Claude will check with you",
         "down": "⬇ effort: {rec} is enough ({conf:.2f}) · {where} → /effort {rec}",
         "up_again": "⬆ effort: needs {rec} ({conf:.2f}) · {where}",
@@ -85,7 +87,9 @@ MESSAGES = {
     "zh": {
         "now": "当前 {cur}",
         "last": "上一轮 {cur}",
-        "up": "⬆ effort：需要 {rec}（{conf:.2f}）· {where} → Esc、/effort {rec}、再发“继续”",
+        "up": "⬆ effort：需要 {rec}（{conf:.2f}）· {where} → {stop}、/effort {rec}、再发“继续”",
+        "stop_terminal": "Esc",
+        "stop_desktop": "停止",
         "up_ask": "⬆ effort：需要 {rec}（{conf:.2f}）· {where} → Claude 会先问你要不要切",
         "down": "⬇ effort：{rec} 就够（{conf:.2f}）· {where} → /effort {rec}",
         "up_again": "⬆ effort：需要 {rec}（{conf:.2f}）· {where}",
@@ -120,6 +124,10 @@ def api_key():
 def lang():
     v = (os.environ.get("CLAUDE_PLUGIN_OPTION_LANGUAGE") or "en").strip().lower()
     return v if v in MESSAGES else "en"
+
+
+def in_desktop_app():
+    return os.environ.get("CLAUDE_CODE_ENTRYPOINT") == "claude-desktop"
 
 
 def option(name):
@@ -216,7 +224,8 @@ def suggestion(answers, current):
     return rec
 
 
-def status(answers, current, source="turn", language="en", ask=False, repeat=False):
+def status(answers, current, source="turn", language="en", ask=False, repeat=False,
+           desktop=False):
     """Classify the advice and render its line. Returns (kind, text).
 
     kind: ambiguous | unclear | unsure | fits | match | up | down.
@@ -224,6 +233,7 @@ def status(answers, current, source="turn", language="en", ask=False, repeat=Fal
     compared. `source` is "live" (status line) or "turn" (last Stop).
     `repeat` means the same switch was already suggested for this level on the
     previous message and the user stayed put: say it briefly, without steps.
+    `desktop` words the stop step for the desktop app (a stop button, not Esc).
     """
     m = MESSAGES[language]
     eff = answers["effort"]
@@ -245,7 +255,8 @@ def status(answers, current, source="turn", language="en", ask=False, repeat=Fal
         return kind, m[kind + "_again"].format(rec=rec, conf=conf, where=where)
     if kind == "up" and ask:
         return kind, m["up_ask"].format(rec=rec, conf=conf, where=where)
-    return kind, m[kind].format(rec=rec, conf=conf, where=where)
+    stop = m["stop_desktop" if desktop else "stop_terminal"]
+    return kind, m[kind].format(rec=rec, conf=conf, where=where, stop=stop)
 
 
 # ---------------------------------------------------------------- state
@@ -339,7 +350,7 @@ def on_prompt(data):
     repeat = (bool(current) and tip.get("rec") == eff["choice"]
               and tip.get("cur") == current and turn.get("t", 0) > tip.get("t", 0))
     ask = option("ask_before_upgrade") and not repeat
-    kind, text = status(answers, current, source, lang(), ask, repeat)
+    kind, text = status(answers, current, source, lang(), ask, repeat, in_desktop_app())
     now = time.time()
     write_json(state_file("advice", session),
                {"kind": kind, "rec": eff["choice"], "conf": eff.get("confidence", 0), "t": now})

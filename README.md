@@ -41,7 +41,7 @@ The number is Jev's confidence. **"was low"** is the level your last completed t
 
 ## Acting on a tip
 
-- **To apply it to the current message:** press Esc, run `/effort high`, then send `continue`. Claude still has your request and picks it up at the new level.
+- **To apply it to the current message:** stop Claude (Esc in the terminal, the stop button in the desktop app), switch with `/effort high`, then send `continue`. Claude still has your request and picks it up at the new level. This is the same in both clients: once a message is sent, Claude starts at the current level, and a switch applies from the next message. The line says "Esc" in the terminal and "stop" in the desktop app.
 - **Or let Claude wait for you:** turn on `ask_before_upgrade`. When a message needs more effort than the session has, Claude asks whether to switch before it does any work, and waits for your answer. It asks once; if you choose to stay, it won't keep asking.
 - In the terminal, `/effort <level>` also saves that level as your default for the model. To change just this session, open `/effort` and press `s`.
 

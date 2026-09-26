@@ -64,6 +64,21 @@ class Status(unittest.TestCase):
         self.assertIn("now low", ea.status(answers("high"), "low", "live")[1])
         self.assertIn("you're on it", ea.status(answers("high"), "high", "live")[1])
 
+    def test_stop_step_worded_per_client(self):
+        self.assertIn("→ Esc,", ea.status(answers("high"), "low")[1])
+        self.assertIn("→ stop,", ea.status(answers("high"), "low", desktop=True)[1])
+
+    def test_client_detected_from_entrypoint(self):
+        env = dict(os.environ)
+        try:
+            os.environ["CLAUDE_CODE_ENTRYPOINT"] = "claude-desktop"
+            self.assertTrue(ea.in_desktop_app())
+            os.environ["CLAUDE_CODE_ENTRYPOINT"] = "cli"
+            self.assertFalse(ea.in_desktop_app())
+        finally:
+            os.environ.clear()
+            os.environ.update(env)
+
     def test_ask_mode_changes_the_up_line(self):
         self.assertIn("check with you", ea.status(answers("high"), "low", ask=True)[1])
 
@@ -75,9 +90,11 @@ class Status(unittest.TestCase):
                     for src in ("turn", "live"):
                         for ask in (False, True):
                             for conf, amb in ((0.99, 0), (0.5, 0), (0.99, 0.9)):
-                                text = ea.status(answers(rec, conf, amb), cur, src, lg, ask)[1]
-                                self.assertNotIn("`", text)
-                                self.assertLessEqual(width(text), 76, text)
+                                for desktop in (False, True):
+                                    text = ea.status(answers(rec, conf, amb), cur, src, lg,
+                                                     ask, desktop=desktop)[1]
+                                    self.assertNotIn("`", text)
+                                    self.assertLessEqual(width(text), 76, text)
 
     def test_chinese(self):
         self.assertIn("需要 high", ea.status(answers("high"), "low", language="zh")[1])
@@ -90,7 +107,7 @@ class Base(unittest.TestCase):
         self._ask, self._key, self._env = ea.ask_jev, ea.api_key, dict(os.environ)
         ea.api_key = lambda: "k"
         for k in list(os.environ):
-            if k.startswith("CLAUDE_PLUGIN_OPTION_"):
+            if k.startswith("CLAUDE_PLUGIN_OPTION_") or k == "CLAUDE_CODE_ENTRYPOINT":
                 del os.environ[k]
 
     def tearDown(self):
