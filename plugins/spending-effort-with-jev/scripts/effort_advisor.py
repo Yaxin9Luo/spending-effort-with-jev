@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
-"""UserPromptSubmit hook: ask Jev which effort level the task needs and
-suggest /effort when it differs from the current level. Never blocks; any
-failure exits silently."""
+"""Suggest /effort switches, judged by TypeSafe's Jev.
+
+One script serves three hook events:
+- UserPromptSubmit: ask Jev which level the new message's task deserves and
+  save that as pending for the session. (This event doesn't carry the current
+  effort level, so nothing is compared yet.)
+- PreToolUse: on the turn's first tool call, compare the pending advice with
+  the real current level (`effort.level` in the hook input). If they differ,
+  show a notice and ask the main agent to say it in one line of its reply, so
+  the user sees it without opening the notice.
+- Stop: for turns with no tool calls, compare and show a notice.
+
+Hooks can't change effort, and Claude Code won't let a session raise its own
+effort, so the switch stays with the user. Never blocks; failures exit silently.
+"""
 import json
 import os
 import sys
@@ -38,6 +50,18 @@ MESSAGES = {
                      "requirements are still ambiguous. Have Claude interview you to "
                      "fill in the spec first, then `/effort max`.",
         "switch": "Effort tip: `/effort {rec}` (now {current}, confidence {conf:.2f})",
+        "agent_switch": "[spending-effort-with-jev] Jev judged that the user's latest "
+                        "request fits effort `{rec}`, but this session runs at "
+                        "`{current}`. Make the first line of your reply to the user "
+                        "a short tip, e.g. \"Effort tip: this looks like a `{rec}` task and "
+                        "we're on `{current}`. `/effort {rec}` applies from your next "
+                        "message.\" Then carry on with the task as you would anyway; "
+                        "don't wait for an answer.",
+        "agent_ambiguous": "[spending-effort-with-jev] Jev judged that the user is "
+                           "handing off a long autonomous task whose requirements are "
+                           "still ambiguous. Make the first line of your reply a short "
+                           "note saying so, and offer to ask a few questions to pin down "
+                           "the spec before a long `/effort max` run.",
         "no_key": "spending-effort-with-jev: no TypeSafe API key found, so effort "
                   "tips are off. Set it in /plugin config or export TYPESAFE_API_KEY. "
                   "Get a key at https://typesafe.ai",
@@ -46,6 +70,13 @@ MESSAGES = {
         "ambiguous": "effort 建议：这像是要放手长跑的任务，但需求还有歧义。"
                      "先让 Claude 采访你补全需求，再 `/effort max`。",
         "switch": "effort 建议：`/effort {rec}`（当前 {current}，置信度 {conf:.2f}）",
+        "agent_switch": "[spending-effort-with-jev] Jev 判断用户最新这条请求适合 effort "
+                        "`{rec}`，但当前会话是 `{current}`。请把回复的第一行写成一句中文提示，"
+                        "例如：“effort 建议：这像是 `{rec}` 档的任务，当前是 `{current}`，"
+                        "输入 `/effort {rec}` 从下一条消息起生效。”然后照常完成任务，不用等回复。",
+        "agent_ambiguous": "[spending-effort-with-jev] Jev 判断用户在交代一个要长时间自主"
+                           "完成的任务，但需求还有歧义。请把回复的第一行写成一句中文提示，"
+                           "并提出先问几个问题把需求补全，再用 `/effort max` 放手跑。",
         "no_key": "spending-effort-with-jev：没找到 TypeSafe API key，effort 建议已关闭。"
                   "在 /plugin 配置里填写，或设置环境变量 TYPESAFE_API_KEY。"
                   "申请地址：https://typesafe.ai",
@@ -159,12 +190,24 @@ def decide(answers, current, language="en"):
     return m["switch"].format(rec=s, current=current, conf=conf)
 
 
-def main():
-    data = json.load(sys.stdin)
+def state_file(kind, session_id):
+    return STATE_DIR / f"{kind}-{session_id or 'x'}.json"
+
+
+def read_json(path):
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+def on_prompt(data):
+    session = data.get("session_id")
+    pending = state_file("pending", session)
+    pending.unlink(missing_ok=True)
     prompt = (data.get("prompt") or "").strip()
     if not prompt or prompt.startswith("/"):
         return
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
     key = api_key()
     if not key:
         # Tell the user once, then stay quiet.
@@ -174,18 +217,46 @@ def main():
             print(json.dumps({"systemMessage": MESSAGES[lang()]["no_key"]},
                              ensure_ascii=False))
         return
-    current = (os.environ.get("CLAUDE_EFFORT")
-               or (data.get("effort") or {}).get("level") or "unknown")
     answers = ask_jev(key, prompt, recent_turns(data.get("transcript_path", "")))
+    pending.write_text(json.dumps(answers))
+
+
+def on_turn_event(data, event):
+    """PreToolUse or Stop: compare pending advice with the real current level."""
+    session = data.get("session_id")
+    pending = state_file("pending", session)
+    answers = read_json(pending)
+    if answers is None:
+        return
+    pending.unlink(missing_ok=True)
+    current = ((data.get("effort") or {}).get("level")
+               or os.environ.get("CLAUDE_EFFORT") or "unknown")
     tip = suggestion(answers, current)
 
     # Don't repeat the same suggestion on consecutive prompts in a session.
-    last_file = STATE_DIR / f"effort-{data.get('session_id', 'x')}"
-    last = last_file.read_text() if last_file.exists() else ""
-    last_file.write_text(tip or "")
-    if tip and tip != last:
-        msg = decide(answers, current, lang())
-        print(json.dumps({"systemMessage": msg}, ensure_ascii=False))
+    last_file = state_file("last", session)
+    last = (read_json(last_file) or {}).get("tip")
+    last_file.write_text(json.dumps({"tip": tip}))
+    if not tip or tip == last:
+        return
+    m = MESSAGES[lang()]
+    out = {"systemMessage": decide(answers, current, lang())}
+    if event == "PreToolUse":
+        agent = (m["agent_ambiguous"] if tip == "ambiguous"
+                 else m["agent_switch"].format(rec=tip, current=current))
+        out["hookSpecificOutput"] = {"hookEventName": "PreToolUse",
+                                     "additionalContext": agent}
+    print(json.dumps(out, ensure_ascii=False))
+
+
+def main():
+    data = json.load(sys.stdin)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    event = data.get("hook_event_name", "UserPromptSubmit")
+    if event == "UserPromptSubmit":
+        on_prompt(data)
+    elif event in ("PreToolUse", "Stop"):
+        on_turn_event(data, event)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,9 @@ A Claude Code plugin that tells you when to switch `/effort`. Each time you send
 Effort tip: `/effort high` (now low, confidence 0.99)
 ```
 
-It never switches effort for you and never blocks your message. It only suggests.
+The tip shows up as a notice, and Claude also puts it on the first line of its reply, so you see it without expanding anything. It never switches effort for you (Claude Code doesn't let a session raise its own effort) and never blocks your message.
+
+How it knows your current level: Claude Code only passes the effort level to hooks during a turn, so Jev's advice is computed when you send the message and compared at the turn's first tool call (or at the end of a turn with no tool calls).
 
 ## Why
 
