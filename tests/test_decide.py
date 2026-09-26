@@ -342,6 +342,49 @@ class Context(Base):
         texts = [t["text"] for t in ea.recent_turns(str(f))]
         self.assertEqual(texts, ["fix the bug", "kept answer", "now add a test"])
 
+    def test_user_messages_whole_replies_trimmed_to_their_end(self):
+        f = self.tmp / "long.jsonl"
+        long_user = "please " * 2000
+        self.write(f, [self.msg("a", None, "user", long_user),
+                       self.msg("b", "a", "assistant", "x" * 5000 + " OLD END"),
+                       self.msg("c", "b", "user", "ok and then?"),
+                       self.msg("d", "c", "assistant", "y" * 5000 + " LAST END")])
+        t = ea.recent_turns(str(f))
+        self.assertEqual(t[0]["text"], long_user.strip())
+        self.assertEqual(len(t[1]["text"]), ea.REPLY_CHARS)
+        self.assertTrue(t[1]["text"].endswith("OLD END"))
+        self.assertEqual(len(t[3]["text"]), ea.LAST_REPLY_CHARS)
+        self.assertTrue(t[3]["text"].endswith("LAST END"))
+
+    def test_merges_reply_blocks_and_drops_image_placeholders(self):
+        f = self.tmp / "m.jsonl"
+        self.write(f, [self.msg("a", None, "user", "fix it"),
+                       self.msg("b", "a", "user", "[Image: source: /tmp/x.png]"),
+                       self.msg("c", "b", "assistant", "Looking."),
+                       self.msg("d", "c", "assistant", "Fixed.")])
+        self.assertEqual(ea.recent_turns(str(f)),
+                         [{"role": "user", "text": "fix it"},
+                          {"role": "assistant", "text": "Looking.\nFixed."}])
+
+    def test_history_stays_within_the_token_budget(self):
+        f = self.tmp / "b.jsonl"
+        entries, parent = [], None
+        for i in range(40):
+            role = "user" if i % 2 == 0 else "assistant"
+            entries.append(self.msg(str(i), parent, role, "word " * 400))
+            parent = str(i)
+        self.write(f, entries)
+        t = ea.recent_turns(str(f))
+        self.assertLessEqual(sum(ea.est_tokens(x["text"]) for x in t), ea.HISTORY_TOKENS)
+        self.assertLessEqual(len(t), 20)
+
+    def test_new_message_capped_only_when_huge(self):
+        self.assertEqual(ea.cap_tokens("short", 100), "short")
+        huge = "a" * 200000
+        capped = ea.cap_tokens(huge, ea.PROMPT_TOKENS)
+        self.assertLessEqual(ea.est_tokens(capped), ea.PROMPT_TOKENS + 10)
+        self.assertIn("[...]", capped)
+
     def test_waits_for_a_transcript_written_late(self):
         import threading
         f = self.tmp / "late.jsonl"

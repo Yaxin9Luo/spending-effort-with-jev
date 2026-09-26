@@ -133,7 +133,7 @@ This measures agreement with the post's rule of thumb as the annotators applied 
 
 ## How it works
 
-1. **You send a message.** Claude Code waits for the hook, which asks Jev (about 0.6 s, 6 s timeout) for a level (low / medium / high / max, or *unclear*) and whether it's an ambiguous hand-off. Jev sees your message plus the last few turns. The line appears before Claude starts.
+1. **You send a message.** Claude Code waits for the hook, which asks Jev (about 1 s, 6 s timeout) for a level (low / medium / high / max, or *unclear*) and whether it's an ambiguous hand-off. Jev sees your message plus the recent conversation (about 8k tokens). The line appears before Claude starts.
 2. **The turn ends.** The hook records the effort level the turn ran on; that's what the next message is compared with. A typed `/effort` reaches no hook, so right after a tip you acted on (Esc, switch, resend) the plugin doesn't compare, rather than compare with a stale level.
 3. **Tips need confidence ≥ 0.7** and a gap of at least one level. xhigh counts as close to both high and max.
 
@@ -141,7 +141,7 @@ Claude Code doesn't let a session raise its own effort, so switching stays with 
 
 ## Privacy and cost
 
-- **Privacy:** each message you send, plus up to six recent text turns (600 characters each) from the current branch of the conversation (rewinds respected), goes to `api.typesafe.ai`. Don't install the plugin if that's not OK for your work.
+- **Privacy:** each message you send goes to `api.typesafe.ai` in full, with recent conversation from the current branch (rewinds respected): up to 20 messages, about 8k tokens. Your messages are sent whole; Claude's replies are trimmed to their last 1,500 characters (3,000 for the latest one). Don't install the plugin if that's not OK for your work.
 - **Cost:** Jev is cheap. The 220-message evaluation above cost a few cents.
 - **Speed:** besides the Jev call, the hooks cost about 35 ms per message and per turn. Slash commands and go-aheads skip Jev. If the API doesn't answer in 6 s, you get "no tip this time" and your message goes through.
 
