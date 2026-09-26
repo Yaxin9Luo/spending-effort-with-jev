@@ -1,0 +1,12 @@
+{
+  "name": "spending-effort-with-jev",
+  "description": "Jev-powered /effort advisor for Claude Code",
+  "owner": { "name": "Yaxin Luo" },
+  "plugins": [
+    {
+      "name": "spending-effort-with-jev",
+      "source": "./plugins/spending-effort-with-jev",
+      "description": "Suggests when to switch /effort, judged per prompt by TypeSafe's Jev"
+    }
+  ]
+}

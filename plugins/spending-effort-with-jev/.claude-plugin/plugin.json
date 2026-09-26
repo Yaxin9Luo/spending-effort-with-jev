@@ -1,0 +1,22 @@
+{
+  "name": "spending-effort-with-jev",
+  "version": "0.1.0",
+  "description": "Suggests when to switch /effort, judged per prompt by TypeSafe's Jev. Based on the ideas in 'Using Claude Code: Spending your effort'. Unofficial.",
+  "author": { "name": "Yaxin Luo" },
+  "license": "MIT",
+  "keywords": ["effort", "hooks", "typesafe", "jev"],
+  "userConfig": {
+    "typesafe_api_key": {
+      "type": "string",
+      "title": "TypeSafe API key",
+      "description": "Key for api.typesafe.ai. Leave empty to use the TYPESAFE_API_KEY environment variable.",
+      "sensitive": true
+    },
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Language of the suggestions: en or zh.",
+      "default": "en"
+    }
+  }
+}
