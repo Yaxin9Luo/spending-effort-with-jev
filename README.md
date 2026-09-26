@@ -2,28 +2,42 @@
 
 **Know which `/effort` level each message needs, the moment you send it.** A Claude Code plugin: every message you send is read by [TypeSafe](https://typesafe.ai)'s Jev model, which judges how much effort the task deserves. You get a one-line verdict before Claude starts working, so you can switch in time.
 
-These lines come from a real session on `low` (they appear as a notice under your message, in the terminal and in the desktop app):
+**Terminal:** on `low`, a quick question gets `○ low fits this`; a bug hunt gets `⬆ needs high`, and with `ask_first` on, Claude asks before starting.
 
-```
-> What does list_orders return?
-  ○ effort: low fits this (0.99)
+<p align="center"><img src="assets/terminal.png" width="820" alt="Claude Code in the terminal: the effort line under each message, and Claude asking whether to switch to high"></p>
 
-> Customers see the same order twice when they page through /orders. Find the root cause and tell me the fix.
-  ⬆ effort: needs high (0.99) · was low → Esc, /effort high, continue
-```
+**Desktop app:** same session flow; the line is in the "Claude Code notice", and Claude's question points you to the effort control under the input box.
 
-It suggests; it never switches effort for you and never blocks your message.
+<p align="center"><img src="assets/desktop.png" width="720" alt="Claude desktop app: Claude asks whether to switch to high effort before starting a bug fix"></p>
+
+It suggests; it never switches effort for you.
 
 ## Install
 
-You need Python 3 and a TypeSafe API key ([typesafe.ai](https://typesafe.ai)).
+**Easiest: let Claude Code install it.** Paste this into Claude Code:
+
+```
+Install the Claude Code plugin from https://github.com/Yaxin9Luo/spending-effort-with-jev.
+Read its README first. Then:
+1. Run: claude plugin marketplace add Yaxin9Luo/spending-effort-with-jev
+2. Run: claude plugin install spending-effort-with-jev@spending-effort-with-jev
+3. The plugin needs a TypeSafe API key (https://typesafe.ai); nothing else to install.
+   If TYPESAFE_API_KEY is already set in my environment, use that. Otherwise tell me to
+   enter the key under /plugin (so it goes to secure storage, not this chat).
+4. Ask me whether to turn on ask_first (Claude asks before starting when the effort
+   level looks wrong). If yes, run:
+   claude plugin install spending-effort-with-jev@spending-effort-with-jev --config ask_first=true
+5. Tell me to run /reload-plugins, then send a test message.
+```
+
+**Or by hand** (Python 3 and a [TypeSafe](https://typesafe.ai) API key needed):
 
 ```
 /plugin marketplace add Yaxin9Luo/spending-effort-with-jev
 /plugin install spending-effort-with-jev@spending-effort-with-jev
 ```
 
-Paste your key when Claude Code asks, or leave it empty and `export TYPESAFE_API_KEY=...`. Then `/reload-plugins` or start a new session.
+Paste your key when Claude Code asks, or leave it empty and `export TYPESAFE_API_KEY=...`. Then `/reload-plugins`. Jev itself is a hosted API, so there's nothing else to install.
 
 ## What the lines mean
 
