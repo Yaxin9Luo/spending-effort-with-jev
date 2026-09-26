@@ -140,7 +140,7 @@ Claude Code doesn't let a session raise its own effort, so switching stays with 
 
 ## Privacy and cost
 
-- **Privacy:** each message you send goes to `api.typesafe.ai` in full, with recent conversation from the current branch (rewinds respected): up to 20 messages, about 8k tokens. Your messages are sent whole; Claude's replies are trimmed to their last 1,500 characters (3,000 for the latest one). Don't install the plugin if that's not OK for your work.
+- **Privacy:** each message you send goes to `api.typesafe.ai` in full, with recent conversation from the current branch (rewinds respected): up to 20 messages, about 8k tokens. Your messages are sent whole; Claude's replies are trimmed to their last 1,500 characters (3,000 for the latest one). Don't install the plugin if that's not OK for your work. Details in [PRIVACY.md](PRIVACY.md).
 - **Cost:** Jev is cheap. The 220-message evaluation above cost a few cents.
 - **Speed:** besides the Jev call, the hooks cost about 35 ms per message and per turn. Slash commands and go-aheads skip Jev. If the API doesn't answer in 6 s, you get "no tip this time" and your message goes through.
 

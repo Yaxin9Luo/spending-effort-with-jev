@@ -1,10 +1,15 @@
 {
   "name": "spending-effort-with-jev",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Shows which /effort level each message needs, the moment you send it, judged by TypeSafe's Jev. Based on 'Using Claude Code: Spending your effort'. Unofficial.",
   "author": {
     "name": "Yaxin Luo"
   },
+  "homepage": "https://github.com/Yaxin9Luo/spending-effort-with-jev",
+  "repository": "https://github.com/Yaxin9Luo/spending-effort-with-jev",
+  "documentationUrl": "https://github.com/Yaxin9Luo/spending-effort-with-jev#readme",
+  "supportUrl": "https://github.com/Yaxin9Luo/spending-effort-with-jev/issues",
+  "privacyPolicyUrl": "https://github.com/Yaxin9Luo/spending-effort-with-jev/blob/main/PRIVACY.md",
   "license": "MIT",
   "keywords": [
     "effort",
