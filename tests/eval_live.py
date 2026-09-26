@@ -7,6 +7,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]
                        / "plugins" / "spending-effort-with-jev" / "scripts"))
 import effort_advisor as ea  # noqa: E402
+# Dev scripts: pass the developer's key to the plugin the way Claude Code would.
+import os  # noqa: E402
+os.environ.setdefault("CLAUDE_PLUGIN_OPTION_TYPESAFE_API_KEY", os.environ.get("TYPESAFE_API_KEY", ""))
 
 CTX = [{"role": "user", "text": "Add retry logic to the harness: retry failed tool calls 3 times"},
        {"role": "assistant", "text": "Done: added retries in runner.py call_tool."}]

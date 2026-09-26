@@ -20,6 +20,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "plugins" / "spending-effort-with-jev" / "scripts"))
 import effort_advisor as ea  # noqa: E402
+# Dev scripts: pass the developer's key to the plugin the way Claude Code would.
+import os  # noqa: E402
+os.environ.setdefault("CLAUDE_PLUGIN_OPTION_TYPESAFE_API_KEY", os.environ.get("TYPESAFE_API_KEY", ""))
 
 LEVELS = ["low", "medium", "high", "max", "unclear"]
 CURRENT = "medium"

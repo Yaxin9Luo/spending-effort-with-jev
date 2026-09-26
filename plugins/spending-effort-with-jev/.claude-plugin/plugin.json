@@ -1,6 +1,6 @@
 {
   "name": "spending-effort-with-jev",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Shows which /effort level each message needs, the moment you send it, judged by TypeSafe's Jev. Based on 'Using Claude Code: Spending your effort'. Unofficial.",
   "author": {
     "name": "Yaxin Luo"
@@ -16,8 +16,9 @@
     "typesafe_api_key": {
       "type": "string",
       "title": "TypeSafe API key",
-      "description": "Key for api.typesafe.ai. Leave empty to use the TYPESAFE_API_KEY environment variable.",
-      "sensitive": true
+      "description": "Your key for api.typesafe.ai (get one at https://typesafe.ai). Stored in secure storage.",
+      "sensitive": true,
+      "required": true
     },
     "language": {
       "type": "string",

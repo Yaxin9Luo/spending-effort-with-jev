@@ -91,7 +91,7 @@ MESSAGES = {
         "error": "○ effort: no tip this time (Jev didn't answer)",
         "bad_key": "⚠ effort: TypeSafe rejected the API key · check it in /plugin",
         "no_key": "spending-effort-with-jev: no TypeSafe API key found, so effort "
-                  "tips are off. Set it in /plugin or export TYPESAFE_API_KEY. "
+                  "tips are off. Set it in /plugin (it's kept in secure storage). "
                   "Get a key at https://typesafe.ai",
         "ask": "[spending-effort-with-jev] Jev judged that this request fits "
                "{rec} effort (confidence {conf:.2f}), but the session is on {cur}. "
@@ -133,7 +133,7 @@ MESSAGES = {
         "error": "○ effort：Jev 没响应，这次没有建议",
         "bad_key": "⚠ effort：TypeSafe 拒绝了这个 API key，请在 /plugin 里检查",
         "no_key": "spending-effort-with-jev：没找到 TypeSafe API key，effort 建议已关闭。"
-                  "在 /plugin 里填写，或设置环境变量 TYPESAFE_API_KEY。"
+                  "请在 /plugin 里填写（会存进系统的安全存储）。"
                   "申请地址：https://typesafe.ai",
         "ask": "[spending-effort-with-jev] Jev 判断这条请求适合 {rec} effort"
                "（置信度 {conf:.2f}），但当前会话是 {cur}。用户要求这种情况下先确认再开工。"
@@ -147,8 +147,9 @@ MESSAGES = {
 # ---------------------------------------------------------------- config
 
 def api_key():
-    return (os.environ.get("CLAUDE_PLUGIN_OPTION_TYPESAFE_API_KEY")
-            or os.environ.get("TYPESAFE_API_KEY"))
+    # Only the plugin's own sensitive option: Claude Code keeps it in secure
+    # storage and passes it to the hook. Nothing else on the machine is read.
+    return os.environ.get("CLAUDE_PLUGIN_OPTION_TYPESAFE_API_KEY")
 
 
 def lang():

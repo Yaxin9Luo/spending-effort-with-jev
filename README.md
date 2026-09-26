@@ -26,8 +26,7 @@ Read its README first. Then:
 1. Run: claude plugin marketplace add Yaxin9Luo/spending-effort-with-jev
 2. Run: claude plugin install spending-effort-with-jev@spending-effort-with-jev
 3. The plugin needs a TypeSafe API key (https://typesafe.ai); nothing else to install.
-   If TYPESAFE_API_KEY is already set in my environment, use that. Otherwise tell me to
-   enter the key under /plugin (so it goes to secure storage, not this chat).
+   Tell me to enter the key under /plugin (it goes to secure storage, not this chat).
 4. Ask me whether to turn on ask_first (Claude asks before starting when the effort
    level looks wrong). If yes, run:
    claude plugin install spending-effort-with-jev@spending-effort-with-jev --config ask_first=true
@@ -41,7 +40,7 @@ Read its README first. Then:
 /plugin install spending-effort-with-jev@spending-effort-with-jev
 ```
 
-Paste your key when Claude Code asks, or leave it empty and `export TYPESAFE_API_KEY=...`. Then `/reload-plugins`. Jev itself is a hosted API, so there's nothing else to install.
+Paste your key when Claude Code asks; it's kept in secure storage and the plugin reads nothing else from your machine. Then `/reload-plugins`. Jev itself is a hosted API, so there's nothing else to install.
 
 ## What the lines mean
 
@@ -149,7 +148,7 @@ Claude Code doesn't let a session raise its own effort, so switching stays with 
 
 ```
 python3 -m unittest discover tests        # offline tests
-TYPESAFE_API_KEY=... python3 tests/eval_live.py
+TYPESAFE_API_KEY=... python3 tests/eval_live.py   # dev only; the plugin itself reads the key from its config
 ```
 
 [`bench/`](bench) holds the task harness used for the runs above: headless `claude -p` in a clean environment, graded by hidden tests.
