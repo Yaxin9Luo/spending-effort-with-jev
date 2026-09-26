@@ -6,7 +6,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/effort_advisor.py\"",
-            "timeout": 10
+            "timeout": 15
           }
         ]
       }

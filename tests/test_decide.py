@@ -365,6 +365,14 @@ class Context(Base):
                     "prompt": "add it and push", "transcript_path": str(self.tmp / "missing.jsonl")})
         self.assertEqual(seen["turns"], [{"role": "assistant", "text": "Want me to add it?"}])
 
+    def test_wait_depends_on_how_the_session_started(self):
+        for source, expected in (("startup", 0), ("clear", 0), ("fork", 6.0), ("resume", 2.0), (None, 2.0)):
+            if source:
+                self.event({"hook_event_name": "SessionStart", "session_id": "w", "source": source})
+            else:
+                ea.state_file("session", "w").unlink(missing_ok=True)
+            self.assertEqual(ea.transcript_wait("w"), expected, source)
+
     def test_fresh_session_does_not_wait_for_a_transcript(self):
         self.event({"hook_event_name": "SessionStart", "session_id": "s", "source": "startup"})
         ea.ask_jev = lambda *a: answers("low")

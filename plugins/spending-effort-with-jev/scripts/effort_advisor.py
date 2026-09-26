@@ -371,6 +371,19 @@ def emit(obj):
     print(json.dumps(obj, ensure_ascii=False))
 
 
+def transcript_wait(session):
+    """How long to wait for a transcript that isn't on disk yet.
+
+    A brand-new session has no history to wait for. A rewind forks a new
+    session and copies the history into its transcript; for a long session
+    that copy was seen landing 3 s after the prompt hook ran.
+    """
+    source = (read_json(state_file("session", session)) or {}).get("source")
+    if source in ("startup", "clear"):
+        return 0
+    return 6.0 if source == "fork" else 2.0
+
+
 def on_prompt(data):
     prompt = (data.get("prompt") or "").strip()
     if not prompt or prompt.startswith("/"):
@@ -391,9 +404,7 @@ def on_prompt(data):
             emit({"systemMessage": m["unclear"]})
         return
     try:
-        # A brand-new session has no history to wait for; a rewind/fork does.
-        fresh = (read_json(state_file("session", session)) or {}).get("source") in ("startup", "clear")
-        turns = recent_turns(data.get("transcript_path", ""), wait_s=0 if fresh else 2.0)
+        turns = recent_turns(data.get("transcript_path", ""), wait_s=transcript_wait(session))
         if not turns:
             # Transcript not readable yet: fall back to Claude's last reply,
             # which the Stop hook saved.
