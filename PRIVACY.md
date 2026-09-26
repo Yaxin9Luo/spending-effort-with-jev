@@ -11,7 +11,7 @@ On each message you send in Claude Code, the plugin makes one HTTPS request to T
 
 Bare go-aheads ("ok", "continue") and slash commands are not sent. Nothing else is sent: no files, no tool output, no environment variables, no other credentials.
 
-How TypeSafe handles that data is covered by TypeSafe's own terms and privacy policy at https://typesafe.ai.
+How TypeSafe handles that data is covered by TypeSafe's [privacy policy](https://www.typesafe.ai/privacy-policy). It says TypeSafe does not train or fine-tune models on your inputs; it doesn't give a fixed retention period.
 
 ## What stays on your machine
 
