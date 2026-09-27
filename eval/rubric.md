@@ -12,7 +12,7 @@ For each message (read with its context), give two labels.
 - **max**: the user wants Claude to operate fully autonomously on a difficult problem, e.g. building and verifying a whole app end to end, or finding security vulnerabilities in critical software.
 - **unclear**: the message and its context don't reveal what the task is, so no level can be justified. Example: a bare "ok" with no context.
 
-If context makes a short follow-up clear ("looks good, now test it"), label the task it refers to. Pick the single best level. If two are defensible, pick the one the rubric points to most directly.
+If context makes a short follow-up clear ("looks good, now test it"), label the task it refers to. Non-coding tasks follow the same logic: a question answerable from knowledge or the conversation, or a discussion, is **low**; research that gathers and summarises information from several sources (web search, docs, job listings) is **medium**; research whose conclusion depends on checking sources carefully (a literature review, comparing claims), or diagnosing why something misbehaves, is **high**. A message that accepts or adjusts a plan the assistant just proposed is labelled as the work that plan will now do, not as unclear. Pick the single best level. If two are defensible, pick the one the rubric points to most directly.
 
 ## 2. `handoff_ambiguous`: true or false
 

@@ -16,9 +16,21 @@ import effort_advisor as ea  # noqa: E402
 import statusline  # noqa: E402
 
 
-def answers(choice, conf=0.9, amb=0.0):
-    return {"effort": {"type": "choice", "choice": choice, "confidence": conf},
+def answers(choice, conf=0.9, amb=0.0, probs=None):
+    """Jev's answer; by default the rest of the probability is spread evenly."""
+    if probs is None:
+        others = [lv for lv in ("low", "medium", "high", "max") if lv != choice]
+        probs = {lv: round((1 - conf) / len(others), 4) for lv in others}
+        probs[choice] = conf
+    return {"effort": {"type": "choice", "choice": choice, "confidence": conf,
+                       "probabilities": probs},
             "handoff_ambiguous": {"type": "noul", "noul": amb}}
+
+
+def split(**probs):
+    """An answer whose top choice is the most probable level."""
+    top = max(probs, key=probs.get)
+    return answers(top, probs[top], probs=probs)
 
 
 def width(text):
@@ -38,7 +50,26 @@ class Suggestion(unittest.TestCase):
 
     def test_none_when_unclear_or_unsure(self):
         self.assertIsNone(ea.suggestion(answers("unclear", 0.99), "low"))
-        self.assertIsNone(ea.suggestion(answers("high", 0.4), "low"))
+        self.assertIsNone(ea.suggestion(split(low=0.45, high=0.45, medium=0.1), "low"))
+
+    def test_neighbouring_levels_splitting_the_vote_is_a_fit(self):
+        # Regression: low 0.52 / unclear 0.33 on low said "not sure".
+        self.assertEqual(ea.verdict(split(low=0.52, unclear=0.33, high=0.15), "low")[0], "match")
+        # xhigh sits between high and max, so a high/max split fits it.
+        self.assertEqual(ea.verdict(split(high=0.5, max=0.4, medium=0.1), "xhigh")[0], "match")
+        # One level away is a switch, so staying vs. switching split evenly is unsure.
+        self.assertEqual(ea.verdict(split(medium=0.45, low=0.41, high=0.14), "low")[0], "unsure")
+
+    def test_switch_needs_most_of_the_probability_on_one_side(self):
+        kind, level, share = ea.verdict(split(high=0.5, max=0.35, low=0.15), "low")
+        self.assertEqual((kind, level), ("up", "high"))
+        self.assertAlmostEqual(share, 0.85)
+        self.assertEqual(ea.verdict(split(high=0.6, low=0.4), "low")[0], "unsure")
+        self.assertEqual(ea.verdict(split(low=0.9, medium=0.1), "max")[:2], ("down", "low"))
+
+    def test_first_message_uses_the_top_choice(self):
+        self.assertEqual(ea.verdict(split(high=0.8, low=0.2), None)[:2], ("fits", "high"))
+        self.assertEqual(ea.verdict(split(high=0.5, low=0.5), None)[0], "unsure")
 
 
 class Status(unittest.TestCase):
@@ -50,7 +81,7 @@ class Status(unittest.TestCase):
         self.assertEqual(self.kind(answers("low"), "max"), "down")
         self.assertEqual(self.kind(answers("medium"), "medium"), "match")
         self.assertEqual(self.kind(answers("high"), None), "fits")
-        self.assertEqual(self.kind(answers("high", 0.5), "low"), "unsure")
+        self.assertEqual(self.kind(split(high=0.5, low=0.5), "low"), "unsure")
         self.assertEqual(self.kind(answers("unclear", 0.99), "low"), "unclear")
         self.assertEqual(self.kind(answers("max", amb=0.9), "low"), "ambiguous")
 
@@ -349,7 +380,7 @@ class Context(Base):
                        self.msg("b", "a", "assistant", "x" * 5000 + " OLD END"),
                        self.msg("c", "b", "user", "ok and then?"),
                        self.msg("d", "c", "assistant", "y" * 5000 + " LAST END")])
-        t = ea.recent_turns(str(f))
+        t = ea.recent_turns(str(f), budget=10000)
         self.assertEqual(t[0]["text"], long_user.strip())
         self.assertEqual(len(t[1]["text"]), ea.REPLY_CHARS)
         self.assertTrue(t[1]["text"].endswith("OLD END"))
@@ -375,8 +406,52 @@ class Context(Base):
             parent = str(i)
         self.write(f, entries)
         t = ea.recent_turns(str(f))
-        self.assertLessEqual(sum(ea.est_tokens(x["text"]) for x in t), ea.HISTORY_TOKENS)
+        # The latest reply is always kept, on top of the budget.
+        self.assertEqual(t[-1]["role"], "assistant")
+        self.assertLessEqual(sum(ea.est_tokens(x["text"]) for x in t[:-1]), ea.HISTORY_TOKENS)
         self.assertLessEqual(len(t), 20)
+
+    def test_latest_reply_kept_even_with_no_budget(self):
+        f = self.tmp / "z.jsonl"
+        self.write(f, [self.msg("a", None, "user", "fix the bug"),
+                       self.msg("b", "a", "assistant", "Plan: branch, eval, merge. Go ahead?")])
+        self.assertEqual(ea.recent_turns(str(f), budget=0),
+                         [{"role": "assistant", "text": "Plan: branch, eval, merge. Go ahead?"}])
+
+    def test_skips_compaction_summary_meta_and_interrupt_markers(self):
+        # Regression: a resumed session sent its 19k-char compaction summary as
+        # a user message, and Jev lost confidence on a plain go-ahead.
+        f = self.tmp / "c.jsonl"
+        summary = dict(self.msg("a", None, "user", "This session is being continued ... " * 500),
+                       isCompactSummary=True, isVisibleInTranscriptOnly=True)
+        meta = dict(self.msg("b", "a", "user", "Output token limit hit. Resume directly."), isMeta=True)
+        self.write(f, [summary, meta,
+                       self.msg("c", "b", "user", "[Request interrupted by user]\ncontinue the review"),
+                       self.msg("d", "c", "assistant", "Found two issues. Fix them?")])
+        self.assertEqual(ea.recent_turns(str(f)),
+                         [{"role": "user", "text": "continue the review"},
+                          {"role": "assistant", "text": "Found two issues. Fix them?"}])
+
+    def test_jev_state_separates_the_previous_reply(self):
+        sent = {}
+        class R:
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+            def read(self): return b'{"answers": {}}'
+        import urllib.request
+        orig = urllib.request.urlopen
+        def fake(req, timeout=None):
+            sent.update(json.loads(req.data))
+            return R()
+        urllib.request.urlopen = fake
+        try:
+            self._ask("k", "ok, do it", [{"role": "user", "text": "fix the bug"},
+                                          {"role": "assistant", "text": "Plan: X. Go ahead?"}])
+        finally:
+            urllib.request.urlopen = orig
+        st = sent["state"]
+        self.assertEqual(st["previous_reply"], "Plan: X. Go ahead?")
+        self.assertEqual(st["earlier_conversation"], [{"role": "user", "text": "fix the bug"}])
 
     def test_new_message_capped_only_when_huge(self):
         self.assertEqual(ea.cap_tokens("short", 100), "short")
@@ -407,6 +482,12 @@ class Context(Base):
         self.event({"hook_event_name": "UserPromptSubmit", "session_id": "s",
                     "prompt": "add it and push", "transcript_path": str(self.tmp / "missing.jsonl")})
         self.assertEqual(seen["turns"], [{"role": "assistant", "text": "Want me to add it?"}])
+
+    def test_stop_saves_the_end_of_a_long_reply(self):
+        self.stop("low", last_assistant_message="x" * 5000 + " Go ahead?")
+        last = ea.read_json(ea.state_file("turn", "s"))["last"]
+        self.assertEqual(len(last), ea.LAST_REPLY_CHARS)
+        self.assertTrue(last.endswith("Go ahead?"))
 
     def test_wait_depends_on_how_the_session_started(self):
         for source, expected in (("startup", 0), ("clear", 0), ("fork", 6.0), ("resume", 2.0), (None, 2.0)):
