@@ -132,13 +132,13 @@ On a held-out test split, with the session on `medium` (Opus 5.5's default):
 
 | | v0.2.5 | v0.2.6 |
 |---|---|---|
-| "not sure" | 51% | 25% |
+| "not sure" | 51% | 20% |
 | "nothing to judge" | 8% | 4% |
-| Switch tips pointing the right way (up or down) | 89% | 94% |
-| Switch tips naming the exact level | 78% | 73% |
-| Messages needing a switch that got the right tip | 32% | 54% |
+| Switch tips pointing the right way (up or down) | 89% | 91% |
+| Switch tips naming the exact level | 78% | 71% |
+| Messages needing a switch that got the right tip | 32% | 58% |
 
-On the 160 written messages, "not sure" fell from 30% to 12%, and the right tip was caught for 75% of messages needing a switch instead of 59%; tips pointed the right way 96% of the time in both versions, and named the exact level 85% of the time instead of 90%. The real conversations aren't published, since they're my private sessions.
+On the 160 written messages, "not sure" fell from 30% to 9%, and the right tip was caught for 79% of messages needing a switch instead of 59%; tips pointed the right way 95% of the time (96% before), and named the exact level 84% of the time instead of 90%. The real conversations aren't published, since they're my private sessions.
 
 This measures agreement with the post's rule of thumb as the annotators applied it, not whether a level is objectively optimal. Everything is in [`eval/`](eval); re-run it with `python3 eval/analyze.py`.
 
