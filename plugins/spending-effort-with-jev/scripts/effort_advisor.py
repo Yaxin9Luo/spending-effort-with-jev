@@ -80,8 +80,8 @@ MESSAGES = {
         "down": "⬇ effort: {rec} is enough ({conf:.2f}) · {where} → {switch}",
         "up_again": "⬆ effort: needs {rec} ({conf:.2f}) · {where}",
         "down_again": "⬇ effort: {rec} is enough ({conf:.2f}) · {where}",
-        "match_last": "✓ effort: {rec} fits ({conf:.2f}) · same as last turn",
-        "match_now": "✓ effort: {rec} fits ({conf:.2f}) · you're on it",
+        "match_last": "✓ effort: {rec} fits this ({conf:.2f}) · last turn ran on {cur}",
+        "match_now": "✓ effort: {rec} fits this ({conf:.2f}) · you're on {cur}",
         "fits": "○ effort: {rec} fits this ({conf:.2f})",
         "fits_check": "○ effort: {rec} fits this ({conf:.2f}) · Claude will check your level",
         "check": "[spending-effort-with-jev] Jev judged that this request fits {rec} effort "
@@ -126,8 +126,8 @@ MESSAGES = {
         "down": "⬇ effort：{rec} 就够（{conf:.2f}）· {where} → {switch}",
         "up_again": "⬆ effort：需要 {rec}（{conf:.2f}）· {where}",
         "down_again": "⬇ effort：{rec} 就够（{conf:.2f}）· {where}",
-        "match_last": "✓ effort：{rec} 正合适（{conf:.2f}）· 和上一轮一样",
-        "match_now": "✓ effort：{rec} 正合适（{conf:.2f}）· 就是当前档位",
+        "match_last": "✓ effort：这条适合 {rec}（{conf:.2f}）· 上一轮用的是 {cur}",
+        "match_now": "✓ effort：这条适合 {rec}（{conf:.2f}）· 当前就是 {cur}",
         "fits": "○ effort：这条适合 {rec}（{conf:.2f}）",
         "fits_check": "○ effort：这条适合 {rec}（{conf:.2f}）· Claude 会先核对当前档位",
         "check": "[spending-effort-with-jev] Jev 判断这条请求适合 {rec} effort"
@@ -379,7 +379,8 @@ def verdict(answers, current):
             return kind, max(side, key=side.get), share
     near = sum(p for lv, p in real.items() if abs(RANK[lv] - RANK[current]) < 1) / total
     if near >= FIT_MIN:
-        return "match", current, near
+        # Name what the message needs; the line says what it was compared with.
+        return "match", top, near
     return "unsure", top, real[top] / total
 
 
@@ -411,7 +412,8 @@ def status(answers, current, source="turn", language="en", ask=False, repeat=Fal
     live = source == "live"
     where = m["now" if live else "last"].format(cur=current)
     if kind == "match":
-        return "match", m["match_now" if live else "match_last"].format(rec=rec, conf=conf)
+        return "match", m["match_now" if live else "match_last"].format(rec=rec, conf=conf,
+                                                                        cur=current)
     if repeat:
         return kind, m[kind + "_again"].format(rec=rec, conf=conf, where=where)
     if ask:

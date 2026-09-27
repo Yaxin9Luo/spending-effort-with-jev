@@ -93,7 +93,14 @@ class Status(unittest.TestCase):
 
     def test_live_level_worded_as_now(self):
         self.assertIn("now low", ea.status(answers("high"), "low", "live")[1])
-        self.assertIn("you're on it", ea.status(answers("high"), "high", "live")[1])
+        self.assertIn("you're on high", ea.status(answers("high"), "high", "live")[1])
+
+    def test_fit_line_names_the_need_and_the_compared_level(self):
+        # Regression: "✓ low fits · same as last turn" read as "you're on low"
+        # after the user had switched to high in the desktop bar.
+        text = ea.status(split(low=0.9, medium=0.1), "low")[1]
+        self.assertIn("low fits this", text)
+        self.assertIn("last turn ran on low", text)
 
     def test_stop_step_worded_per_client(self):
         self.assertIn("→ Esc,", ea.status(answers("high"), "low")[1])
@@ -178,7 +185,7 @@ class Flow(Base):
 
     def test_every_message_gets_a_line(self):
         self.stop("medium")
-        self.assertIn("same as last turn", self.line("medium"))
+        self.assertIn("last turn ran on", self.line("medium"))
         self.stop("medium")
         self.assertIn("/effort high", self.line("high"))
 
@@ -197,7 +204,7 @@ class Flow(Base):
         # Esc: no Stop. The user switches with /effort (invisible) and resends.
         self.assertIn("fits this", self.line("high", text="fix the pagination bug"))
         self.stop("high")
-        self.assertIn("same as last turn", self.line("high"))
+        self.assertIn("last turn ran on", self.line("high"))
 
     def test_completed_tip_turn_is_compared_normally(self):
         self.stop("low")
@@ -217,7 +224,7 @@ class Flow(Base):
         # The user may have switched since, so the next message isn't compared.
         self.assertIn("fits this", self.line("high", text="switched, go"))
         self.stop("high")
-        self.assertIn("same as last turn", self.line("high"))
+        self.assertIn("last turn ran on", self.line("high"))
 
     def test_ask_turn_interrupted_does_not_suppress_twice(self):
         os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
@@ -225,7 +232,7 @@ class Flow(Base):
         self.prompt("high")          # Claude would ask...
         self.line("high")            # ...but the user hit Esc and resent
         self.stop("high")
-        self.assertIn("same as last turn", self.line("high"))
+        self.assertIn("last turn ran on", self.line("high"))
 
     def test_ask_mode_covers_downgrades(self):
         os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"

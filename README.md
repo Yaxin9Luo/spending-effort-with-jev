@@ -48,7 +48,7 @@ Paste your key when Claude Code asks; it's kept in secure storage and the plugin
 |---|---|
 | `⬆ effort: needs high (0.99) · was low → Esc, /effort high, continue` | Needs more effort than you have. The first time, it tells you how to switch (in the desktop app: "stop, set high in the bar, continue"); if you stay put, later repeats are shorter. |
 | `⬇ effort: low is enough (0.95) · was max → /effort low` | You're spending more than this needs. |
-| `✓ effort: medium fits (0.91) · same as last turn` | You're on the right level. |
+| `✓ effort: medium fits this (0.91) · last turn ran on medium` | The level your last turn ran on suits this message. If you've switched since, compare with that. |
 | `○ effort: high fits this (0.98)` | The recommendation, when there's nothing trustworthy to compare with yet (a session's first message, or right after you pressed Esc to switch). With `ask_first`, the first message adds "· Claude will check your level". |
 | `○ effort: maybe high (0.55), not sure · keep your level` | Jev's vote is split between staying and switching, so no advice. |
 | `○ effort: nothing to judge here · keep your level` | "ok", "continue" and the like. Answered instantly, without calling Jev. |
