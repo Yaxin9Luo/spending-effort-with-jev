@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 CONFIDENCE_MIN = 0.7      # first message (level unknown): below this, only say "maybe"
-SWITCH_MIN = 0.8          # share of Jev's probability that must need a switch in one direction
+SWITCH_MIN = 0.7          # share of Jev's probability that must need a switch in one direction
 FIT_MIN = 0.7             # share within one level of yours needed to say it fits
 UNCLEAR_MIN = 0.5         # probability of "unclear" needed to say there's nothing to judge
 AMBIGUITY_MIN = 0.7       # "clarify first" tip (repeated-split CV plateau 0.7-0.8)
@@ -553,9 +553,12 @@ def on_prompt(data):
         text = None
     out = {"systemMessage": text} if text else {}
     how = m["how_desktop" if in_desktop_app() else "how_terminal"].format(rec=rec)
-    if kind in ("up", "down") and ask:
+    if kind in ("up", "down") and ask and source == "live":
         context = m["ask"].format(rec=rec, conf=conf, cur=current, how=how)
-    elif check:
+    elif (kind in ("up", "down") and ask) or check:
+        # The level compared with is the last turn's; the user may have
+        # switched since (hooks can't see that), so Claude reads the live
+        # level first and asks only if it's still off.
         context = m["check"].format(rec=rec, conf=conf, how=how)
     else:
         context = None

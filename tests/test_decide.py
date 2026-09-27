@@ -220,6 +220,9 @@ class Flow(Base):
         ctx = out["hookSpecificOutput"]["additionalContext"]
         self.assertIn("/effort high", ctx)
         self.assertIn("wait", ctx)
+        # Regression: the level compared with is the last turn's; the user may
+        # have switched since, so Claude reads the live level before asking.
+        self.assertIn("echo $CLAUDE_EFFORT", ctx)
         self.stop("low")  # Claude asked and stopped
         # The user may have switched since, so the next message isn't compared.
         self.assertIn("fits this", self.line("high", text="switched, go"))
