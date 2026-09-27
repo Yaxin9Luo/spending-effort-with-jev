@@ -97,6 +97,19 @@ MESSAGES = {
                  "don't mention this check.",
         "unsure": "○ effort: maybe {rec} ({conf:.2f}), not sure · keep your level",
         "unclear": "○ effort: nothing to judge here · keep your level",
+        "goahead": "○ effort: go-ahead · Jev can't see the work it starts, check your level",
+        "goahead_ask": "○ effort: go-ahead · Claude will size the work before starting",
+        "size_up": "[spending-effort-with-jev] The user's message is a go-ahead (continue, "
+                   "start, approve a plan), so the plugin can't tell what work it starts, "
+                   "but you can. The user asked to be checked with when the effort level "
+                   "looks wrong. Before doing anything else, run `echo $CLAUDE_EFFORT`, then "
+                   "judge the effort the work you're about to do deserves: {levels} Order: "
+                   "low, medium, high, xhigh, max; xhigh counts as close to both high and "
+                   "max. If the session's level is a step or more away, reply in one short "
+                   "line: name the level the work needs and the session's level, and ask "
+                   "whether to switch with {how} and then say continue, or go ahead as is. "
+                   "Then stop and wait. If the level is close, or the user already answered "
+                   "an effort question for this work, carry on and don't mention this check.",
         "ambiguous": "⚠ effort: long run, fuzzy spec → have Claude interview you, then go max",
         "error": "○ effort: no tip this time (Jev didn't answer)",
         "bad_key": "⚠ effort: TypeSafe rejected the API key · check it in /plugin",
@@ -139,6 +152,15 @@ MESSAGES = {
                  "还是保持现在的档位直接做，然后停下来等回答。否则直接做任务，不要提这次核对。",
         "unsure": "○ effort：可能是 {rec}（{conf:.2f}），把握不大 · 保持当前档位",
         "unclear": "○ effort：这条看不出任务 · 保持当前档位",
+        "goahead": "○ effort：开工指令 · Jev 看不到要做的活，请自己核对档位",
+        "goahead_ask": "○ effort：开工指令 · Claude 开工前会先估档位",
+        "size_up": "[spending-effort-with-jev] 用户这条是开工指令（继续、开始、同意方案），插件"
+                   "看不出它要开始什么活，但你知道。用户要求档位不对时先确认再开工。在做任何事之前，"
+                   "先运行 `echo $CLAUDE_EFFORT`，再判断接下来要做的活该用哪一档：{levels} 顺序："
+                   "low、medium、high、xhigh、max；xhigh 与 high、max 都算接近。如果当前档位差"
+                   "一档以上，就先用一句中文回复：说明这活需要哪一档、当前是哪一档，问用户是用"
+                   "{how}切换后回复“继续”，还是保持现在的档位直接做，然后停下来等回答。如果档位"
+                   "接近，或者用户已经就这件事回答过档位问题，就直接做，不要提这次核对。",
         "ambiguous": "⚠ effort：要放手长跑，但需求有歧义 → 先让 Claude 采访你，再切到 max",
         "error": "○ effort：Jev 没响应，这次没有建议",
         "bad_key": "⚠ effort：TypeSafe 拒绝了这个 API key，请在 /plugin 里检查",
@@ -486,6 +508,27 @@ def transcript_wait(session):
     return 6.0 if source == "fork" else 2.0
 
 
+def go_ahead(session, m, quiet):
+    """A go-ahead starts work Jev can't see (it was planned earlier, often in
+    files), yet it's when the level matters most. With ask_first, hand the
+    sizing to Claude, which knows the work, and have it check the live level."""
+    ask = option("ask_first")
+    now = time.time()
+    write_json(state_file("advice", session), {"kind": "goahead", "rec": None, "conf": 0, "t": now})
+    out = {}
+    if not quiet:
+        out["systemMessage"] = m["goahead_ask" if ask else "goahead"]
+    if ask:
+        levels = " ".join(f"{lv}: {EFFORT_CRITERIA[lv]}" for lv in LEVELS)
+        how = m["how_desktop" if in_desktop_app() else "how_terminal"].format(rec="that level")
+        out["hookSpecificOutput"] = {"hookEventName": "UserPromptSubmit",
+                                     "additionalContext": m["size_up"].format(levels=levels, how=how)}
+        # Claude may ask this turn, so the level recorded when it ends can't
+        # be trusted for the next message (see on_stop).
+        write_json(state_file("tip", session), {"rec": None, "cur": None, "t": now, "asked": True})
+    emit(out)
+
+
 def on_prompt(data):
     prompt = (data.get("prompt") or "").strip()
     if not prompt or prompt.startswith("/"):
@@ -502,8 +545,7 @@ def on_prompt(data):
     session = data.get("session_id")
     quiet = option("quiet")
     if prompt.lower().strip(" \t\n.!。！~～") in GO_AHEADS:
-        if not quiet:
-            emit({"systemMessage": m["unclear"]})
+        go_ahead(session, m, quiet)
         return
     try:
         turns = recent_turns(data.get("transcript_path", ""), wait_s=transcript_wait(session))
@@ -534,6 +576,11 @@ def on_prompt(data):
               and tip.get("cur") == current and turn.get("t", 0) > tip.get("t", 0))
     ask = option("ask_first") and not repeat
     kind, text = status(answers, current, source, lang(), ask, repeat, in_desktop_app())
+    if kind == "unclear" and turns:
+        # A go-ahead in words Jev can't place ("OK, commit the spec and start
+        # phase 0"): the work it starts was planned earlier, often in files.
+        go_ahead(session, m, quiet)
+        return
     # No level seen yet in this session (first message, or right after a model
     # switch): with ask_first on, have Claude read the live level and ask only
     # if it's off. Not after an interrupted tip or an ask turn: the user just

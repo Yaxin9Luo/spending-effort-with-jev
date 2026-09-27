@@ -261,7 +261,30 @@ class Flow(Base):
             ea.ask_jev = boom
             out = self.event({"hook_event_name": "UserPromptSubmit",
                               "session_id": "s", "prompt": text})
-            self.assertIn("nothing to judge", out["systemMessage"], text)
+            self.assertIn("go-ahead", out["systemMessage"], text)
+            self.assertNotIn("hookSpecificOutput", out)
+
+    def test_go_ahead_with_ask_first_hands_sizing_to_claude(self):
+        # Regression: "继续" after a planning chat said "nothing to judge",
+        # though it started hard work the user was on low for.
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
+        ea.ask_jev = lambda *a: (_ for _ in ()).throw(AssertionError("no Jev call"))
+        out = self.event({"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "继续"})
+        self.assertIn("Claude will size", out["systemMessage"])
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("echo $CLAUDE_EFFORT", ctx)
+        self.assertIn("already answered", ctx)
+        self.assertIn(ea.EFFORT_CRITERIA["max"], ctx)
+        # Claude may ask, so the level recorded at the end of this turn isn't trusted.
+        self.assertTrue(ea.read_json(ea.state_file("tip", "s"))["asked"])
+
+    def test_unplaceable_go_ahead_with_context_goes_to_claude(self):
+        # Regression: "好，提交 spec，开始第 0 阶段" — Jev saw only "I'll commit
+        # the spec and start phase 0" and answered unclear.
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
+        self.stop("low", last_assistant_message="Anything else? If not, I'll commit the spec and start phase 0.")
+        out = self.prompt("unclear", 0.55, text="OK, commit the spec and start phase 0")
+        self.assertIn("echo $CLAUDE_EFFORT", out["hookSpecificOutput"]["additionalContext"])
 
     def test_repeated_tip_is_short_after_the_user_stayed(self):
         self.stop("low")

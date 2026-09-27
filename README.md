@@ -51,7 +51,7 @@ Paste your key when Claude Code asks; it's kept in secure storage and the plugin
 | `✓ effort: medium fits this (0.91) · last turn ran on medium` | The level your last turn ran on suits this message. If you've switched since, compare with that. |
 | `○ effort: high fits this (0.98)` | The recommendation, when there's nothing trustworthy to compare with yet (a session's first message, or right after you pressed Esc to switch). With `ask_first`, the first message adds "· Claude will check your level". |
 | `○ effort: maybe high (0.55), not sure · keep your level` | Jev's vote is split between staying and switching, so no advice. |
-| `○ effort: nothing to judge here · keep your level` | "ok", "continue" and the like. Answered instantly, without calling Jev. |
+| `○ effort: go-ahead · Claude will size the work before starting` | "continue", "OK, start phase 0" and the like. They start work that was planned earlier, often in files Jev never sees, so with `ask_first` on, Claude (which knows the work) reads your live level, sizes the work and asks only if the level is off. Without `ask_first` the line asks you to check. |
 | `⚠ effort: long run, fuzzy spec → have Claude interview you, then go max` | A long hands-off task with open questions. More effort won't fix a wrong reading of the task; a few questions first will. |
 
 The number is how much of Jev's probability backs the line: for a switch, the share on levels in that direction; for "fits", the share within one level of yours. **"was low"** is the level your last completed turn ran on: hooks can't see a `/effort` switch until the next turn ends. (The optional status line below fixes that in the terminal.)
