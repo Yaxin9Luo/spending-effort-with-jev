@@ -16,17 +16,21 @@ effort, so the switch stays with the user. Never blocks; failures exit quietly.
 """
 import json
 import os
+import re
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 
-CONFIDENCE_MIN = 0.7      # first message (level unknown): below this, only say "maybe"
+CONFIDENCE_MIN = 0.7      # level unknown (e.g. first message): below this, only say "maybe"
 SWITCH_MIN = 0.7          # share of Jev's probability that must need a switch in one direction
 FIT_MIN = 0.7             # share within one level of yours needed to say it fits
 UNCLEAR_MIN = 0.5         # probability of "unclear" needed to say there's nothing to judge
 AMBIGUITY_MIN = 0.7       # "clarify first" tip (repeated-split CV plateau 0.7-0.8)
+JEV_URL = "https://api.typesafe.ai/v1/systemone"
 TIMEOUT_S = 6
+HOOK_BUDGET_S = 12        # transcript wait + Jev call, all told (hooks.json allows 15 s)
 STATE_TTL_S = 14 * 24 * 3600
 STATE_DIR = Path(os.environ.get("CLAUDE_PLUGIN_DATA")
                  or Path.home() / ".claude" / "spending-effort-with-jev")
@@ -36,6 +40,13 @@ RANK = {"low": 0, "medium": 1, "high": 2, "xhigh": 2.5, "max": 3}
 GO_AHEADS = {"ok", "okay", "k", "kk", "yes", "y", "yep", "yeah", "sure", "go", "go on",
              "go ahead", "continue", "proceed", "do it", "lgtm", "sounds good",
              "继续", "继续吧", "好", "好的", "行", "可以", "嗯", "对", "是", "开始", "开始吧"}
+# Prompts nobody typed: slash commands, and wrappers Claude Code sends as
+# prompts (a background task finishing, a local command's output). A path
+# like "/Users/me/app.py crashes" is typed text, so commands must end at a
+# space or the end of the message.
+SLASH_COMMAND = re.compile(r"/[\w:.-]+(\s|$)")
+WRAPPERS = ("<task-notification>", "<local-command", "<command-")
+HEAVY = ("high", "max")    # work worth checking the live level for
 
 EFFORT_CRITERIA = {
     "low": "Quick back-and-forth with the user watching: questions answerable from "
@@ -77,6 +88,8 @@ MESSAGES = {
         "how_desktop": "the effort control under the input box",
         "up_ask": "⬆ effort: needs {rec} ({conf:.2f}) · {where} → Claude will check with you",
         "down_ask": "⬇ effort: {rec} is enough ({conf:.2f}) · {where} → Claude will check with you",
+        "up_check": "○ effort: needs {rec} ({conf:.2f}) · Claude will check your level",
+        "down_check": "○ effort: {rec} is enough ({conf:.2f}) · Claude will check your level",
         "down": "⬇ effort: {rec} is enough ({conf:.2f}) · {where} → {switch}",
         "up_again": "⬆ effort: needs {rec} ({conf:.2f}) · {where}",
         "down_again": "⬇ effort: {rec} is enough ({conf:.2f}) · {where}",
@@ -93,8 +106,9 @@ MESSAGES = {
                  "counts as close to both high and max), reply in one short line: say this "
                  "looks like a {rec}-effort task and name the session's level, and ask "
                  "whether to switch with {how} and then say continue, or go ahead as is. "
-                 "Then stop and wait for the answer. Otherwise carry on with the task and "
-                 "don't mention this check.",
+                 "Then stop and wait for the answer. Don't ask if the user already turned "
+                 "down a switch in the same direction (up or down) in this conversation. "
+                 "Otherwise carry on with the task and don't mention this check.",
         "unsure": "○ effort: maybe {rec} ({conf:.2f}), not sure · keep your level",
         "unclear": "○ effort: nothing to judge here · keep your level",
         "goahead": "○ effort: go-ahead · Jev can't see the work it starts, check your level",
@@ -108,8 +122,9 @@ MESSAGES = {
                    "max. If the session's level is a step or more away, reply in one short "
                    "line: name the level the work needs and the session's level, and ask "
                    "whether to switch with {how} and then say continue, or go ahead as is. "
-                   "Then stop and wait. If the level is close, or the user already answered "
-                   "an effort question for this work, carry on and don't mention this check.",
+                   "Then stop and wait. If the level is close, or the user already turned "
+                   "down a switch in the same direction (up or down) in this conversation, "
+                   "carry on and don't mention this check.",
         "ambiguous": "⚠ effort: long run, fuzzy spec → have Claude interview you, then go max",
         "error": "○ effort: no tip this time (Jev didn't answer)",
         "bad_key": "⚠ effort: TypeSafe rejected the API key · check it in /plugin",
@@ -136,6 +151,8 @@ MESSAGES = {
         "how_desktop": "输入框下方的档位栏",
         "up_ask": "⬆ effort：需要 {rec}（{conf:.2f}）· {where} → Claude 会先问你要不要切",
         "down_ask": "⬇ effort：{rec} 就够（{conf:.2f}）· {where} → Claude 会先问你要不要切",
+        "up_check": "○ effort：需要 {rec}（{conf:.2f}）· Claude 会先核对当前档位",
+        "down_check": "○ effort：{rec} 就够（{conf:.2f}）· Claude 会先核对当前档位",
         "down": "⬇ effort：{rec} 就够（{conf:.2f}）· {where} → {switch}",
         "up_again": "⬆ effort：需要 {rec}（{conf:.2f}）· {where}",
         "down_again": "⬇ effort：{rec} 就够（{conf:.2f}）· {where}",
@@ -149,7 +166,8 @@ MESSAGES = {
                  "`echo $CLAUDE_EFFORT`。如果这个档位和 {rec} 差一档以上（顺序：low、medium、"
                  "high、xhigh、max；xhigh 与 high、max 都算接近），就先用一句中文回复：说明这像是 "
                  "{rec} 档的任务、当前是哪一档，问用户是用{how}切到 {rec} 后回复“继续”，"
-                 "还是保持现在的档位直接做，然后停下来等回答。否则直接做任务，不要提这次核对。",
+                 "还是保持现在的档位直接做，然后停下来等回答。如果用户在这段对话里已经拒绝过同一方向"
+                 "（升档或降档）的切换，就不要再问。否则直接做任务，不要提这次核对。",
         "unsure": "○ effort：可能是 {rec}（{conf:.2f}），把握不大 · 保持当前档位",
         "unclear": "○ effort：这条看不出任务 · 保持当前档位",
         "goahead": "○ effort：开工指令 · Jev 看不到要做的活，请自己核对档位",
@@ -160,7 +178,8 @@ MESSAGES = {
                    "low、medium、high、xhigh、max；xhigh 与 high、max 都算接近。如果当前档位差"
                    "一档以上，就先用一句中文回复：说明这活需要哪一档、当前是哪一档，问用户是用"
                    "{how}切换后回复“继续”，还是保持现在的档位直接做，然后停下来等回答。如果档位"
-                   "接近，或者用户已经就这件事回答过档位问题，就直接做，不要提这次核对。",
+                   "接近，或者用户在这段对话里已经拒绝过同一方向（升档或降档）的切换，就直接做，"
+                   "不要提这次核对。",
         "ambiguous": "⚠ effort：要放手长跑，但需求有歧义 → 先让 Claude 采访你，再切到 max",
         "error": "○ effort：Jev 没响应，这次没有建议",
         "bad_key": "⚠ effort：TypeSafe 拒绝了这个 API key，请在 /plugin 里检查",
@@ -201,17 +220,23 @@ def option(name):
 # ---------------------------------------------------------------- Jev
 
 def _text(entry):
-    content = (entry.get("message") or {}).get("content")
+    message = entry.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
     if isinstance(content, list):
-        text = " ".join(c.get("text", "") for c in content
-                        if isinstance(c, dict) and c.get("type") == "text")
+        blocks = [str(c.get("text") or "") for c in content
+                  if isinstance(c, dict) and c.get("type") == "text"]
     else:
-        text = content if isinstance(content, str) else ""
+        blocks = [content] if isinstance(content, str) else []
+    # Drop blocks Claude Code wrapped in tags (system reminders, task
+    # notifications, command output) but keep text the user pasted, and keep
+    # the rest of a message whose first block is a reminder.
+    blocks = [b for b in blocks
+              if not b.lstrip().startswith("<") or b.lstrip().startswith("<pasted_content")]
+    text = "\n".join(blocks)
     # Drop attachment placeholders ("[Image: source: /tmp/...]") and interrupt
     # markers ("[Request interrupted by user]").
-    text = "\n".join(l for l in text.splitlines()
+    return "\n".join(l for l in text.splitlines()
                      if not l.lstrip().startswith(("[Image: source:", "[Request interrupted"))).strip()
-    return "" if text.startswith("<") else text
 
 
 def _written(entry):
@@ -224,16 +249,20 @@ def _written(entry):
 
 def _tail(transcript_path, lines=1500):
     try:
-        with open(transcript_path) as f:
+        # errors="replace": one bad byte (or a line cut mid-character while
+        # Claude Code is still writing it) must not cost all the history.
+        with open(transcript_path, encoding="utf-8", errors="replace") as f:
             raw = f.readlines()[-lines:]
     except Exception:
         return []
     entries = []
     for line in raw:
         try:
-            entries.append(json.loads(line))
+            entry = json.loads(line)
         except Exception:
-            pass
+            continue
+        if isinstance(entry, dict):
+            entries.append(entry)
     return entries
 
 
@@ -353,13 +382,35 @@ def ask_jev(key, prompt, turns):
         },
     }
     req = urllib.request.Request(
-        "https://api.typesafe.ai/v1/systemone",
+        JEV_URL,
         data=json.dumps(body).encode(),
         headers={"Authorization": f"Bearer {key}",
                  "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
-        return json.load(r)["answers"]
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        # urllib would re-send the Authorization header to wherever a
+        # redirect points; this API never redirects, so refuse.
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    with urllib.request.build_opener(NoRedirect).open(req, timeout=TIMEOUT_S) as r:
+        return checked(json.load(r)["answers"])
+
+
+def checked(answers):
+    """Raise on a response shape the judgement can't use, so the user gets
+    the "no tip" line instead of a silent failure."""
+    eff, amb = answers["effort"], answers["handoff_ambiguous"]
+    probs = eff.get("probabilities") or {}
+    if not isinstance(probs, dict) or eff.get("choice") not in EFFORT_CRITERIA:
+        raise ValueError("unexpected Jev answer")
+    if not probs and not eff.get("confidence"):
+        raise ValueError("Jev answer without probabilities or confidence")
+    numbers = [eff.get("confidence") or 0, amb["noul"], *probs.values()]
+    if not all(isinstance(x, (int, float)) for x in numbers):
+        raise ValueError("unexpected Jev answer")
+    return answers
 
 
 # ---------------------------------------------------------------- judgement
@@ -373,25 +424,28 @@ def verdict(answers, current):
     kind: ambiguous | unclear | unsure | fits | match | up | down. "fits" is
     for when no trustworthy current level is known (nothing to compare).
     With a current level, sum the probability of the levels that need a
-    switch up, a switch down, or are within one level of it: two neighbouring
-    levels splitting the vote (low 0.5 / medium 0.4 while you're on low) is a
-    clear "fits", not "not sure".
+    switch up, a switch down, or sit on the current level (xhigh counts high
+    and max as its own): the switch only needs most of the vote on one side,
+    not on one level. Shares are out of Jev's whole answer, "unclear"
+    included, so a switch is never backed by less than the number shown;
+    "unclear" itself counts toward staying.
     """
     eff = answers["effort"]
+    conf_raw = eff.get("confidence") or 0
     probs = eff.get("probabilities")
     if not probs:  # older responses: spread the rest over the other levels
-        rest = (1 - eff.get("confidence", 0)) / 4
+        rest = (1 - conf_raw) / 4
         probs = {lv: rest for lv in LEVELS + ("unclear",)}
-        probs[eff["choice"]] = eff.get("confidence", 0)
+        probs[eff["choice"]] = conf_raw
     if answers["handoff_ambiguous"]["noul"] >= AMBIGUITY_MIN:
         return "ambiguous", None, 0
     if probs.get("unclear", 0) >= UNCLEAR_MIN:
         return "unclear", None, 0
     real = {lv: probs.get(lv, 0) for lv in LEVELS}
-    total = sum(real.values()) or 1
+    total = (sum(real.values()) + probs.get("unclear", 0)) or 1
     top = max(real, key=real.get)
     if current not in RANK:
-        conf = eff.get("confidence", 0) if eff["choice"] == top else real[top] / total
+        conf = real[top] / total
         return ("fits" if conf >= CONFIDENCE_MIN else "unsure"), top, conf
     for kind, far in (("up", lambda lv: RANK[lv] - RANK[current] >= 1),
                       ("down", lambda lv: RANK[current] - RANK[lv] >= 1)):
@@ -399,7 +453,9 @@ def verdict(answers, current):
         share = sum(side.values()) / total
         if share >= SWITCH_MIN:
             return kind, max(side, key=side.get), share
-    near = sum(p for lv, p in real.items() if abs(RANK[lv] - RANK[current]) < 1) / total
+    # "Unclear" gives no reason to switch, so it counts toward staying.
+    near = (sum(p for lv, p in real.items() if abs(RANK[lv] - RANK[current]) < 1)
+            + probs.get("unclear", 0)) / total
     if near >= FIT_MIN:
         # Name what the message needs; the line says what it was compared with.
         return "match", top, near
@@ -524,14 +580,42 @@ def go_ahead(session, m, quiet):
         out["hookSpecificOutput"] = {"hookEventName": "UserPromptSubmit",
                                      "additionalContext": m["size_up"].format(levels=levels, how=how)}
         # Claude may ask this turn, so the level recorded when it ends can't
-        # be trusted for the next message (see on_stop).
-        write_json(state_file("tip", session), {"rec": None, "cur": None, "t": now, "asked": True})
-    emit(out)
+        # be trusted for the next message (see on_stop). The go-ahead may be
+        # the user's answer to an earlier switch question, so the "stay"
+        # memory is left alone.
+        write_json(state_file("tip", session), {"t": now, "asked": True, "ask_rec": None})
+    if out:
+        emit(out)
+
+
+def within(seconds, fn):
+    """Run fn with a total time limit. urllib's timeout is per socket
+    operation, so a slow-dripping response could otherwise outlast the hook."""
+    box = {}
+
+    def run():
+        try:
+            box["value"] = fn()
+        except BaseException as e:  # re-raised in the caller
+            box["error"] = e
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        raise TimeoutError("Jev took too long")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+def typed(prompt):
+    return bool(prompt) and not SLASH_COMMAND.match(prompt) and not prompt.startswith(WRAPPERS)
 
 
 def on_prompt(data):
     prompt = (data.get("prompt") or "").strip()
-    if not prompt or prompt.startswith("/"):
+    if not typed(prompt):
         return
     m = MESSAGES[lang()]
     key = api_key()
@@ -544,18 +628,25 @@ def on_prompt(data):
         return
     session = data.get("session_id")
     quiet = option("quiet")
+    ask_first = option("ask_first")
     if prompt.lower().strip(" \t\n.!。！~～") in GO_AHEADS:
         go_ahead(session, m, quiet)
         return
-    try:
+
+    def fetch():
         turns = recent_turns(data.get("transcript_path", ""), wait_s=transcript_wait(session))
         if not turns:
             # Transcript not readable yet: fall back to Claude's last reply,
             # which the Stop hook saved.
             last = (read_json(state_file("turn", session)) or {}).get("last")
             turns = [{"role": "assistant", "text": last}] if last else []
-        answers = ask_jev(key, prompt, turns)
+        return turns, ask_jev(key, prompt, turns)
+
+    try:
+        turns, answers = within(HOOK_BUDGET_S, fetch)
     except Exception as e:
+        # Still mark that a prompt arrived (see on_stop).
+        write_json(state_file("advice", session), {"kind": "error", "t": time.time()})
         if getattr(e, "code", None) in (401, 403):
             emit({"systemMessage": m["bad_key"]})
         elif not quiet:
@@ -564,49 +655,61 @@ def on_prompt(data):
     current, source = current_level(session)
     tip = read_json(state_file("tip", session)) or {}
     turn = read_json(state_file("turn", session)) or {}
+    stay = read_json(state_file("stay", session)) or {}
     if tip.get("asked") and tip.get("t", 0) > turn.get("t", 0):
         # Claude's "switch first?" turn was interrupted, so it never became
         # the completed turn that on_stop marks as untrustworthy.
         tip["asked"] = False
         write_json(state_file("tip", session), tip)
-    _, rec, conf = verdict(answers, current)
-    # Same switch, same level as last time, and the user let that turn run:
-    # they've seen the steps and chose to stay, so be brief and don't ask again.
-    repeat = (bool(current) and tip.get("rec") == rec
-              and tip.get("cur") == current and turn.get("t", 0) > tip.get("t", 0))
-    ask = option("ask_first") and not repeat
-    kind, text = status(answers, current, source, lang(), ask, repeat, in_desktop_app())
+    kind, rec, conf = verdict(answers, current)
     if kind == "unclear" and turns:
         # A go-ahead in words Jev can't place ("OK, commit the spec and start
         # phase 0"): the work it starts was planned earlier, often in files.
         go_ahead(session, m, quiet)
         return
-    # No level seen yet in this session (first message, or right after a model
-    # switch): with ask_first on, have Claude read the live level and ask only
-    # if it's off. Not after an interrupted tip or an ask turn: the user just
-    # decided there, and asking again would nag.
-    check = ask and kind == "fits" and source == "unknown"
+    # A switch in the same direction from the same level was already shown,
+    # and the user let a turn run since: they chose to stay. Say it briefly
+    # and don't ask again, even if Jev's pick moves between high and max.
+    shown = stay.get(kind) or {}
+    repeat = (kind in ("up", "down") and bool(current) and shown.get("cur") == current
+              and turn.get("t", 0) > shown.get("t", 0))
+    ask = ask_first and not repeat
+    kind, text = status(answers, current, source, lang(), ask, repeat, in_desktop_app())
+    live = source == "live"
+    # When Claude should read the live level ($CLAUDE_EFFORT) before starting:
+    # - a switch tip compared with the last turn's level, which the user may
+    #   have changed since (hooks can't see that): the line stays neutral
+    #   instead of pointing from a level the user may have left;
+    # - no trustworthy level: the first message (or after a model switch), or
+    #   heavy work right after an ask, a go-ahead or an interrupted tip, when
+    #   the user may have just changed the level.
+    check = ask and (
+        (kind in ("up", "down") and not live)
+        or (kind == "fits" and (source == "unknown" or rec in HEAVY)))
     if check:
-        text = m["fits_check"].format(rec=rec, conf=conf)
+        text = m[kind + "_check" if kind in ("up", "down") else "fits_check"].format(rec=rec, conf=conf)
+    asked = check or (ask and live and kind in ("up", "down"))
     now = time.time()
     write_json(state_file("advice", session),
                {"kind": kind, "rec": rec, "conf": conf, "t": now})
-    if kind in ("up", "down") or check:
+    if kind in ("up", "down") and not repeat:
+        # One record per direction: declining a downgrade says nothing about
+        # an upgrade, and a later upgrade tip mustn't erase the downgrade one.
+        stay[kind] = {"cur": current, "t": now}
+        write_json(state_file("stay", session), stay)
+    if kind in ("up", "down") or asked:
         # "asked": Claude may ask this turn, so the level recorded when it
-        # ends can't be trusted for the next message (see on_stop).
+        # ends may not hold for the next message (see on_stop).
         write_json(state_file("tip", session),
-                   {"rec": rec, "cur": current, "t": now, "asked": ask})
+                   {"t": now, "asked": asked, "ask_rec": rec if asked else None})
     if quiet and kind not in ("up", "down", "ambiguous"):
         text = None
     out = {"systemMessage": text} if text else {}
     how = m["how_desktop" if in_desktop_app() else "how_terminal"].format(rec=rec)
-    if kind in ("up", "down") and ask and source == "live":
-        context = m["ask"].format(rec=rec, conf=conf, cur=current, how=how)
-    elif (kind in ("up", "down") and ask) or check:
-        # The level compared with is the last turn's; the user may have
-        # switched since (hooks can't see that), so Claude reads the live
-        # level first and asks only if it's still off.
+    if check:
         context = m["check"].format(rec=rec, conf=conf, how=how)
+    elif asked:
+        context = m["ask"].format(rec=rec, conf=conf, cur=current, how=how)
     else:
         context = None
     if context:
@@ -614,6 +717,13 @@ def on_prompt(data):
                                      "additionalContext": context}
     if out:
         emit(out)
+
+
+def asked_a_question(reply):
+    """A turn that ends on a short question (Claude asking whether to switch)
+    rather than on finished work."""
+    reply = reply.strip()
+    return 0 < len(reply) <= 600 and ("?" in reply[-200:] or "？" in reply[-200:])
 
 
 def on_stop(data):
@@ -625,16 +735,29 @@ def on_stop(data):
     session = data.get("session_id")
     rec = {"level": level, "t": time.time(),
            "last": (data.get("last_assistant_message") or "")[-LAST_REPLY_CHARS:]}
+    previous = read_json(state_file("turn", session)) or {}
+    advice = read_json(state_file("advice", session)) or {}
     tip = read_json(state_file("tip", session)) or {}
     if tip.get("asked"):
-        rec["after_ask"] = True
+        # Claude was told to check the live level. Only if it actually asked
+        # (the level was off, and the turn ended on a short question) may the
+        # user switch before answering; if it got on with the work, the level
+        # this turn ran on holds for the next message.
+        need = tip.get("ask_rec")
+        close = need in RANK and level in RANK and abs(RANK[need] - RANK[level]) < 1
+        if not close and asked_a_question(data.get("last_assistant_message") or ""):
+            rec["after_ask"] = True
         tip["asked"] = False
         write_json(state_file("tip", session), tip)
+    elif previous.get("after_ask") and advice.get("t", 0) <= previous.get("t", 0):
+        # Another Stop with no prompt in between (e.g. a background task woke
+        # Claude): the user still hasn't answered the question.
+        rec["after_ask"] = True
     write_json(state_file("turn", session), rec)
 
 
 def on_model_switch(data):
-    for kind in ("turn", "live", "tip"):
+    for kind in ("turn", "live", "tip", "stay"):
         state_file(kind, data.get("session_id")).unlink(missing_ok=True)
 
 

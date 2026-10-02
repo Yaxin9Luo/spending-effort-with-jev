@@ -1,6 +1,6 @@
 # spending-effort-with-jev
 
-**Know which `/effort` level each message needs, the moment you send it.** A Claude Code plugin: every message you send is read by [TypeSafe](https://typesafe.ai)'s Jev model, which judges how much effort the task deserves. You get a one-line verdict before Claude starts working, so you can switch in time.
+**Know which `/effort` level each message needs, the moment you send it.** A Claude Code plugin: every message you type is read by [TypeSafe](https://typesafe.ai)'s Jev model, which judges how much effort the task deserves. You get a one-line verdict before Claude starts working, so you can switch in time.
 
 **Terminal:** on `low`, a quick question gets `○ low fits this`; a bug hunt gets `⬆ needs high`, and with `ask_first` on, Claude asks before starting. Orange: the plugin's line. Blue: Claude checking with you.
 
@@ -49,12 +49,14 @@ Paste your key when Claude Code asks; it's kept in secure storage and the plugin
 | `⬆ effort: needs high (0.99) · was low → Esc, /effort high, continue` | Needs more effort than you have. The first time, it tells you how to switch (in the desktop app: "stop, set high in the bar, continue"); if you stay put, later repeats are shorter. |
 | `⬇ effort: low is enough (0.95) · was max → /effort low` | You're spending more than this needs. |
 | `✓ effort: medium fits this (0.91) · last turn ran on medium` | The level your last turn ran on suits this message. If you've switched since, compare with that. |
-| `○ effort: high fits this (0.98)` | The recommendation, when there's nothing trustworthy to compare with yet (a session's first message, or right after you pressed Esc to switch). With `ask_first`, the first message adds "· Claude will check your level". |
+| `○ effort: high fits this (0.98)` | The recommendation, when there's nothing trustworthy to compare with yet (a session's first message, or right after you pressed Esc to switch). |
+| `○ effort: needs high (0.97) · Claude will check your level` | With `ask_first`: the plugin only knows the level your last turn ran on, and you may have switched since, so instead of pointing from it, Claude reads your live level (one quick `echo $CLAUDE_EFFORT`) and asks only if it's still off. Also on a session's first message, and for high or max work right after a question, a go-ahead or an Esc. |
 | `○ effort: maybe high (0.55), not sure · keep your level` | Jev's vote is split between staying and switching, so no advice. |
+| `○ effort: nothing to judge here · keep your level` | A bare "ok" with no conversation before it. |
 | `○ effort: go-ahead · Claude will size the work before starting` | "continue", "OK, start phase 0" and the like. They start work that was planned earlier, often in files Jev never sees, so with `ask_first` on, Claude (which knows the work) reads your live level, sizes the work and asks only if the level is off. Without `ask_first` the line asks you to check. |
 | `⚠ effort: long run, fuzzy spec → have Claude interview you, then go max` | A long hands-off task with open questions. More effort won't fix a wrong reading of the task; a few questions first will. |
 
-The number is how much of Jev's probability backs the line: for a switch, the share on levels in that direction; for "fits", the share within one level of yours. **"was low"** is the level your last completed turn ran on: hooks can't see a `/effort` switch until the next turn ends. (The optional status line below fixes that in the terminal.)
+The number is how much of Jev's whole answer backs the line: for a switch, the share on levels one or more steps away in that direction; for "fits", the share on your level (for xhigh, on high or max) plus "unclear", which gives no reason to switch. **"was low"** is the level your last completed turn ran on: hooks can't see a `/effort` switch until the next turn ends. (The optional status line below fixes that in the terminal.)
 
 ## Acting on a tip
 
@@ -122,13 +124,16 @@ On these tasks low was already enough, and max cost up to 25× more and took 30�
 
 We wrote 160 realistic Claude Code messages (English and Chinese, some with conversation context) and 60 hand-off requests. Three annotators (Opus, Sonnet and Fable, working blind from a rubric based on the post) labelled each one. Agreement was high: Fleiss' κ = 0.82 for level and 0.89 for hand-off ambiguity.
 
-On a held-out test split, with the session on `medium` (Opus 5.5's default):
+On the held-out half, with the session on `medium` (Opus 5.5's default) and the current decision rule (v0.2.7):
 
-- **95%** of the switch tips pointed to the right level.
-- They caught **63%** of the messages that deserved a different level. When Jev isn't sure, it says so instead of advising.
-- The "fuzzy spec" warning caught 29 of 33 genuinely ambiguous hand-offs, and fired wrongly on 6 of 187 clear ones.
+- **90%** of the switch tips named the right level (43 of 48), and 98% pointed the right way.
+- They caught **67%** of the messages that deserved a different level (43 of 64). When Jev's answer is split, the line says so instead of advising.
+- Averaged over the four starting levels, 11% of lines were "not sure".
+- The "fuzzy spec" warning caught 29 of 33 genuinely ambiguous hand-offs, and fired wrongly on 6 of 187 clear ones (all 220 messages; not a held-out figure).
 
-**On real conversations** (v0.2.6): 90 messages sampled from my own Claude Code sessions, each with its real context, labelled the same way (κ = 0.62: real messages are harder, for annotators too). Averaged over all four current levels:
+These use Jev answers recorded with the v0.2.5 wording of the levels; v0.2.6's added wording for non-coding work isn't reflected. The v0.2.5 rule on the same answers gave 95% and 63%.
+
+**On real conversations** (measured for v0.2.6 on 2026-09-27; the raw data wasn't kept, so this can't be re-run): 90 messages sampled from my own Claude Code sessions, each with its real context, labelled the same way (κ = 0.62: real messages are harder, for annotators too). Averaged over all four current levels:
 
 | | v0.2.5 | v0.2.6 |
 |---|---|---|
@@ -138,23 +143,24 @@ On a held-out test split, with the session on `medium` (Opus 5.5's default):
 | Switch tips naming the exact level | 78% | 71% |
 | Messages needing a switch that got the right tip | 32% | 58% |
 
-On the 160 written messages, "not sure" fell from 30% to 9%, and the right tip was caught for 79% of messages needing a switch instead of 59%; tips pointed the right way 95% of the time (96% before), and named the exact level 84% of the time instead of 90%. The real conversations aren't published, since they're my private sessions.
+On the 160 written messages, "not sure" fell from 30% to 9%, and the right tip was caught for 79% of messages needing a switch instead of 59%; tips pointed the right way 95% of the time (96% before), and named the exact level 84% of the time instead of 90%. The real conversations aren't published, since they're my private sessions. In my own daily use afterwards (v0.2.6, desktop app, Sep 29 to Oct 2), 48% of lines on typed messages were "not sure", far above both evals; v0.2.7 changes how shares are computed, and whether that closes the gap is still open.
 
-This measures agreement with the post's rule of thumb as the annotators applied it, not whether a level is objectively optimal. Everything is in [`eval/`](eval); re-run it with `python3 eval/analyze.py`.
+This measures agreement with the post's rule of thumb as the annotators applied it, not whether a level is objectively optimal; the rule's thresholds were picked on the same data. The written set is in [`eval/`](eval).
 
 ## How it works
 
 1. **You send a message.** Claude Code waits for the hook, which asks Jev (about 1 s, 6 s timeout) for a level (low / medium / high / max, or *unclear*) and whether it's an ambiguous hand-off. Jev sees your message, Claude's latest reply (what you're answering) and about 1,500 tokens of older conversation. Compaction summaries, system notices and interrupt markers are left out: nobody wrote them, and long unrelated context makes Jev less sure. The line appears before Claude starts.
-2. **The turn ends.** The hook records the effort level the turn ran on; that's what the next message is compared with. A typed `/effort` reaches no hook, so right after a tip you acted on (Esc, switch, resend) the plugin doesn't compare, rather than compare with a stale level.
-3. **The line uses Jev's whole distribution**, not just its top pick. A switch tip needs at least 70% of the probability on levels one or more steps away in one direction; "fits" needs at least 70% within one level of yours. So low 0.5 / unclear 0.3 while you're on low is a fit, not "not sure". xhigh counts as close to both high and max. On a session's first message, when your level isn't known yet, the top pick needs confidence ≥ 0.7.
+2. **The turn ends.** The hook records the effort level the turn ran on; that's what the next message is compared with. A typed `/effort` or the desktop effort bar reaches no hook, so right after a tip you acted on (Esc, switch, resend) or a question Claude asked, the plugin doesn't compare, rather than compare with a stale level.
+3. **The line uses Jev's whole distribution**, not just its top pick. A switch tip needs at least 70% of Jev's answer on levels one or more steps away in one direction; "fits" needs at least 70% on your level plus "unclear". So low 0.5 / unclear 0.3 while you're on low is a fit, not "not sure". xhigh counts as close to both high and max. When your level isn't known yet, the top level needs at least 70%.
+4. **Once you've stayed, it stops asking.** After a switch tip in one direction from your level, if you let a turn run without switching, later tips in that direction from the same level are brief and don't ask again, even if Jev moves between high and max. Answering Claude's question with "go ahead" or "ok" counts as staying.
 
 Claude Code doesn't let a session raise its own effort, so switching stays with you.
 
 ## Privacy and cost
 
-- **Privacy:** each message you send goes to `api.typesafe.ai` in full, with Claude's latest reply (its last 3,000 characters) and older conversation from the current branch (rewinds respected), about 1,500 tokens: your messages whole, Claude's older replies trimmed to their last 1,500 characters. Don't install the plugin if that's not OK for your work. Details in [PRIVACY.md](PRIVACY.md).
+- **Privacy:** each message you type goes to `api.typesafe.ai` in full (a giant paste is cut to about 20k tokens), with Claude's latest reply (its last 3,000 characters) and older conversation from the current branch (rewinds respected), about 1,500 tokens: your messages whole, Claude's older replies trimmed to their last 1,500 characters. Don't install the plugin if that's not OK for your work. Details in [PRIVACY.md](PRIVACY.md).
 - **Cost:** Jev is cheap. The 220-message evaluation above cost a few cents.
-- **Speed:** besides the Jev call, the hooks cost about 35 ms per message and per turn. Slash commands and go-aheads skip Jev. If the API doesn't answer in 6 s, you get "no tip this time" and your message goes through.
+- **Speed:** besides the Jev call, the hooks cost about 35 ms per message and per turn. Slash commands, background-task notices and bare go-aheads ("ok", "continue") skip Jev. If Jev doesn't answer in time (6 s per request, 12 s in all including waiting for a transcript), you get "no tip this time" and your message goes through.
 
 ## Development
 

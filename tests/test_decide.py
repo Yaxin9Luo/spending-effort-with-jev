@@ -216,14 +216,17 @@ class Flow(Base):
         os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
         self.stop("low")
         out = self.prompt("high")
-        self.assertIn("check with you", out["systemMessage"])
+        # Regression: the line used to point from the last turn's level ("⬆ … was
+        # low") even when the user had already changed it; Claude checks instead.
+        self.assertIn("Claude will check your level", out["systemMessage"])
+        self.assertNotIn("⬆", out["systemMessage"])
         ctx = out["hookSpecificOutput"]["additionalContext"]
         self.assertIn("/effort high", ctx)
         self.assertIn("wait", ctx)
         # Regression: the level compared with is the last turn's; the user may
         # have switched since, so Claude reads the live level before asking.
         self.assertIn("echo $CLAUDE_EFFORT", ctx)
-        self.stop("low")  # Claude asked and stopped
+        self.stop("low", last_assistant_message="This looks like a high-effort task and you're on low. Switch first?")  # Claude asked and stopped
         # The user may have switched since, so the next message isn't compared.
         self.assertIn("fits this", self.line("high", text="switched, go"))
         self.stop("high")
@@ -241,9 +244,9 @@ class Flow(Base):
         os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
         self.stop("max")
         out = self.prompt("low")
-        self.assertIn("check with you", out["systemMessage"])
+        self.assertIn("Claude will check your level", out["systemMessage"])
         self.assertIn("/effort low", out["hookSpecificOutput"]["additionalContext"])
-        self.stop("max")  # Claude asked
+        self.stop("max", last_assistant_message="Low is enough for this. Switch to low?")
         self.assertIn("fits this", self.line("low", text="switched, go"))
 
     def test_quiet_mode_only_shows_switches(self):
@@ -273,7 +276,7 @@ class Flow(Base):
         self.assertIn("Claude will size", out["systemMessage"])
         ctx = out["hookSpecificOutput"]["additionalContext"]
         self.assertIn("echo $CLAUDE_EFFORT", ctx)
-        self.assertIn("already answered", ctx)
+        self.assertIn("turned down a switch in the same direction", ctx)
         self.assertIn(ea.EFFORT_CRITERIA["max"], ctx)
         # Claude may ask, so the level recorded at the end of this turn isn't trusted.
         self.assertTrue(ea.read_json(ea.state_file("tip", "s"))["asked"])
@@ -295,18 +298,54 @@ class Flow(Base):
         self.assertIn("was low", again)
         self.assertNotIn("Esc", again)
         self.stop("low")
-        self.assertIn("/effort max", self.line("max"))  # a different tip is spelled out
+        # Same direction from the same level: still brief, though Jev's pick moved.
+        again = self.line("max")
+        self.assertIn("needs max", again)
+        self.assertNotIn("Esc", again)
 
     def test_ask_mode_asks_once_per_situation(self):
         os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
         self.stop("low")
         self.assertIn("hookSpecificOutput", self.prompt("high"))
-        self.stop("low")                            # Claude asked
-        self.prompt("high", text="go ahead as is")  # not compared (after the ask)
-        self.stop("low")                            # ran on low, the user's choice
-        out = self.prompt("high")
+        self.stop("low", last_assistant_message="This looks like a high-effort task and you're on low. Switch first?")
+        out = self.prompt("high", text="go ahead as is")  # after the ask: Claude rechecks
+        self.assertIn("turned down a switch", out["hookSpecificOutput"]["additionalContext"])
+        self.stop("low", last_assistant_message="Fixed: the loop was off by one. " * 30)
+        out = self.prompt("high")                         # the user stayed on low
         self.assertNotIn("hookSpecificOutput", out)
         self.assertIn("was low", out["systemMessage"])
+
+    def test_go_ahead_answer_keeps_the_stay(self):
+        # Regression: answering Claude's question with "go ahead" / "ok" erased
+        # the record that the user chose to stay, so Claude asked again.
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
+        self.stop("low")
+        self.prompt("high")
+        self.stop("low", last_assistant_message="This looks like a high-effort task and you're on low. Switch first?")
+        self.event({"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "go ahead"})
+        self.stop("low", last_assistant_message="Done. " * 200)
+        out = self.prompt("high", text="now the next bug")
+        self.assertNotIn("hookSpecificOutput", out)
+        self.assertIn("was low", out["systemMessage"])
+
+    def test_check_turn_that_just_worked_keeps_the_level(self):
+        # After a check where Claude found the level fine and did the work,
+        # the next message is compared again instead of staying unknown.
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
+        self.prompt("high")                                   # first message: check
+        self.stop("high", last_assistant_message="Done. " * 200)
+        self.assertIn("last turn ran on high", self.line("high"))
+
+    def test_extra_stop_keeps_the_question_open(self):
+        # Regression: a second Stop with no prompt in between (a background
+        # task waking Claude) dropped after_ask, so the next message was
+        # compared with the level the user had been asked to leave.
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
+        self.stop("low")
+        self.prompt("high")
+        self.stop("low", last_assistant_message="This looks like a high-effort task and you're on low. Switch first?")
+        self.stop("low", last_assistant_message="Background task finished.")
+        self.assertIn("fits this", self.line("high", text="I switched to high, go"))
 
     def test_slash_commands_skipped(self):
         self.assertIsNone(self.prompt("high", text="/effort high"))
@@ -470,18 +509,19 @@ class Context(Base):
         class R:
             def __enter__(self): return self
             def __exit__(self, *a): pass
-            def read(self): return b'{"answers": {}}'
+            def read(self): return json.dumps({"answers": answers("high")}).encode()
         import urllib.request
-        orig = urllib.request.urlopen
-        def fake(req, timeout=None):
-            sent.update(json.loads(req.data))
-            return R()
-        urllib.request.urlopen = fake
+        orig = urllib.request.build_opener
+        class Opener:
+            def open(self, req, timeout=None):
+                sent.update(json.loads(req.data))
+                return R()
+        urllib.request.build_opener = lambda *handlers: Opener()
         try:
             self._ask("k", "ok, do it", [{"role": "user", "text": "fix the bug"},
                                           {"role": "assistant", "text": "Plan: X. Go ahead?"}])
         finally:
-            urllib.request.urlopen = orig
+            urllib.request.build_opener = orig
         st = sent["state"]
         self.assertEqual(st["previous_reply"], "Plan: X. Go ahead?")
         self.assertEqual(st["earlier_conversation"], [{"role": "user", "text": "fix the bug"}])
@@ -551,21 +591,31 @@ class FirstMessageCheck(Base):
         self.assertIn("echo $CLAUDE_EFFORT", ctx)
         self.assertIn("don't mention this check", ctx)
 
-    def test_next_message_is_not_compared_after_the_check_turn(self):
+    def test_next_message_is_not_compared_after_claude_asked(self):
         self.prompt("low", 0.96)
-        self.stop("max")  # Claude checked; maybe asked
+        self.stop("max", last_assistant_message="This is a quick question and you're on max. Switch to low?")
         self.assertIn("fits this", self.line("low", text="what is 2+2"))
+
+    def test_next_message_is_compared_when_claude_just_answered(self):
+        self.prompt("low", 0.96)
+        self.stop("max", last_assistant_message="Paris is the capital of France, known for " + "x" * 700)
+        self.assertIn("low is enough", self.line("low", text="what is 2+2"))
 
     def test_no_check_without_ask_first(self):
         del os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"]
         self.assertNotIn("hookSpecificOutput", self.prompt("low", 0.96))
 
-    def test_no_check_when_unsure_or_after_an_interrupted_tip(self):
+    def test_no_check_when_unsure(self):
         self.assertNotIn("hookSpecificOutput", self.prompt("high", 0.5))
+
+    def test_heavy_work_after_an_interrupted_tip_is_checked(self):
+        # The user pressed Esc after a tip and may have switched: for high or
+        # max work Claude reads the live level; for light work it doesn't matter.
         self.stop("low")
-        self.prompt("high")                   # asks (up)
+        self.prompt("high")                                        # asks (up)
         out = self.prompt("high", text="fix the pagination bug")  # Esc'd, resent
-        self.assertNotIn("hookSpecificOutput", out)
+        self.assertIn("echo $CLAUDE_EFFORT", out["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("Claude will check your level", out["systemMessage"])
 
     def test_quiet_still_passes_the_check_to_claude(self):
         os.environ["CLAUDE_PLUGIN_OPTION_QUIET"] = "true"
@@ -576,3 +626,130 @@ class FirstMessageCheck(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Robustness(Base):
+    def test_task_notifications_and_commands_are_skipped(self):
+        # Regression: background-task notifications were judged like typed
+        # messages (99 of 521 lines in a week) and set off effort questions.
+        ea.ask_jev = lambda *a: (_ for _ in ()).throw(AssertionError("no Jev call"))
+        for text in ("<task-notification>\n<task-id>a1</task-id>\n</task-notification>",
+                     "<local-command-stdout>Compacted</local-command-stdout>",
+                     "/effort high", "/spending-effort-with-jev:high continue"):
+            self.assertIsNone(self.event({"hook_event_name": "UserPromptSubmit",
+                                          "session_id": "s", "prompt": text}), text)
+
+    def test_message_starting_with_a_path_is_judged(self):
+        # Regression: "/Users/me/app.py crashes …" was skipped as a slash command.
+        self.assertTrue(ea.typed("/Users/me/app/server.py crashes on start"))
+        self.assertIn("fits this", self.line("high", text="/Users/me/app/server.py crashes on start"))
+
+    def test_quiet_go_ahead_prints_nothing(self):
+        os.environ["CLAUDE_PLUGIN_OPTION_QUIET"] = "true"
+        self.assertIsNone(self.event({"hook_event_name": "UserPromptSubmit",
+                                      "session_id": "s", "prompt": "continue"}))
+
+    def test_switch_share_counts_unclear(self):
+        # Regression: high 0.40 with unclear 0.45 was shown as "needs high (0.73)".
+        kind, _, share = ea.verdict(split(high=0.40, unclear=0.45, low=0.15), "low")
+        self.assertEqual(kind, "unsure")
+        self.assertLessEqual(share, 0.45)
+
+    def test_first_message_share_is_consistent(self):
+        # Regression: less certain answers could say "fits" while more certain
+        # ones said "not sure", depending on whether "unclear" was the top pick.
+        a = ea.verdict(split(high=0.60, unclear=0.30, low=0.10), None)
+        b = ea.verdict(split(high=0.40, unclear=0.45, low=0.15), None)
+        self.assertGreater(a[2], b[2])
+        self.assertNotEqual((a[0], b[0]), ("unsure", "fits"))
+
+    def test_malformed_jev_answer_gives_the_error_line(self):
+        # Regression: an unexpected shape failed silently and left stale advice.
+        for bad in ({"effort": {"choice": "high"}},
+                    {"effort": {"choice": "huge", "confidence": 0.9}, "handoff_ambiguous": {"noul": 0}},
+                    {"effort": {"choice": "high", "confidence": None, "probabilities": ["x"]},
+                     "handoff_ambiguous": {"noul": 0}},
+                    {"effort": {"choice": "high", "confidence": 0.9}, "handoff_ambiguous": {"noul": None}},
+                    # would have shown "maybe low (0.25)" for a "high" answer
+                    {"effort": {"choice": "high", "confidence": None}, "handoff_ambiguous": {"noul": 0}}):
+            with self.assertRaises(Exception):
+                ea.checked(bad)
+        def bad_jev(*a):
+            return ea.checked({"effort": {"choice": "high"}})
+        ea.ask_jev = bad_jev
+        out = self.event({"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "fix it"})
+        self.assertIn("didn't answer", out["systemMessage"])
+        self.assertEqual(ea.read_json(ea.state_file("advice", "s"))["kind"], "error")
+
+    def test_total_time_limit(self):
+        # Regression: urllib's timeout is per socket operation, so a slow
+        # response could outlast the 15 s hook limit.
+        start = time.time()
+        with self.assertRaises(TimeoutError):
+            ea.within(0.3, lambda: time.sleep(2))
+        self.assertLess(time.time() - start, 1.0)
+        self.assertEqual(ea.within(1, lambda: 42), 42)
+        with self.assertRaises(KeyError):
+            ea.within(1, lambda: {}["x"])
+
+    def test_redirects_are_refused_so_the_key_stays_put(self):
+        # Regression: urllib re-sent the Authorization header to wherever a
+        # redirect pointed.
+        import http.server
+        import threading
+        got = {}
+
+        class Other(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                got["auth"] = self.headers.get("Authorization")
+                self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+            do_POST = do_GET
+            def log_message(self, *a): pass
+
+        other = http.server.HTTPServer(("127.0.0.1", 0), Other)
+
+        class Api(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{other.server_port}/steal")
+                self.end_headers()
+            def log_message(self, *a): pass
+
+        api = http.server.HTTPServer(("127.0.0.1", 0), Api)
+        for server in (api, other):
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+        orig = ea.JEV_URL
+        ea.JEV_URL = f"http://127.0.0.1:{api.server_port}/v1"
+        try:
+            with self.assertRaises(Exception):
+                self._ask("secret-key", "fix the bug", [])
+        finally:
+            ea.JEV_URL = orig
+            api.shutdown(); other.shutdown()
+        self.assertNotIn("auth", got)
+
+    def test_bad_bytes_and_odd_lines_keep_the_history(self):
+        # Regression: one invalid byte, a JSON list line or a text block with
+        # "text": null made the hook lose all history (or show the wrong error).
+        f = self.tmp / "odd.jsonl"
+        good = [{"uuid": "a", "parentUuid": None, "type": "user", "message": {"content": "fix the bug"}},
+                {"uuid": "b", "parentUuid": "a", "type": "assistant",
+                 "message": {"content": [{"type": "text", "text": None}, {"type": "text", "text": "Found it."}]}}]
+        raw = (b"[1, 2]\n" + b"\xff\xfe broken\n" + b'{"message": "string"}\n'
+               + b"".join(json.dumps(e).encode() + b"\n" for e in good) + b'{"uuid": "c", "type": "us\xc3')
+        f.write_bytes(raw)
+        start = time.time()
+        turns = ea.recent_turns(str(f), wait_s=2)
+        self.assertLess(time.time() - start, 1.0)
+        self.assertEqual([t["text"] for t in turns], ["fix the bug", "Found it."])
+
+    def test_reminder_block_does_not_hide_what_the_user_typed(self):
+        entry = {"type": "user", "message": {"content": [
+            {"type": "text", "text": "<system-reminder>Today is Monday.</system-reminder>"},
+            {"type": "text", "text": "why does the build fail?"}]}}
+        self.assertEqual(ea._text(entry), "why does the build fail?")
+        pasted = {"type": "user", "message": {"content": "<pasted_content id=\"1\">log lines</pasted_content>"}}
+        self.assertIn("log lines", ea._text(pasted))
+        note = {"type": "user", "message": {"content": "<task-notification>done</task-notification>"}}
+        self.assertEqual(ea._text(note), "")

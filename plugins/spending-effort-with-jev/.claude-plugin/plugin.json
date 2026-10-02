@@ -1,6 +1,6 @@
 {
   "name": "spending-effort-with-jev",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Shows which /effort level each message needs, the moment you send it, judged by TypeSafe's Jev. Based on 'Using Claude Code: Spending your effort'. Unofficial.",
   "author": {
     "name": "Yaxin Luo"
