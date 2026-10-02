@@ -79,9 +79,7 @@ MESSAGES = {
     "en": {
         "now": "now {cur}",
         "last": "was {cur}",
-        "up": "⬆ effort: needs {rec} ({conf:.2f}) · {where} → {stop}, {switch}, continue",
-        "stop_terminal": "Esc",
-        "stop_desktop": "stop",
+        "up": "⬆ effort: needs {rec} ({conf:.2f}) · {where} → {switch} now, no stop needed",
         "switch_terminal": "/effort {rec}",
         "switch_desktop": "set {rec} in the bar",
         "how_terminal": "/effort {rec}",
@@ -142,9 +140,7 @@ MESSAGES = {
     "zh": {
         "now": "当前 {cur}",
         "last": "上一轮 {cur}",
-        "up": "⬆ effort：需要 {rec}（{conf:.2f}）· {where} → {stop}、{switch}、再发“继续”",
-        "stop_terminal": "Esc",
-        "stop_desktop": "停止",
+        "up": "⬆ effort：需要 {rec}（{conf:.2f}）· {where} → 现在就{switch}，不用停",
         "switch_terminal": "/effort {rec}",
         "switch_desktop": "在底栏选 {rec}",
         "how_terminal": "/effort {rec}",
@@ -215,6 +211,29 @@ def in_desktop_app():
 def option(name):
     v = os.environ.get(f"CLAUDE_PLUGIN_OPTION_{name.upper()}", "")
     return v.strip().lower() in ("1", "true", "yes", "on")
+
+
+LOG_MAX_BYTES = 5_000_000
+
+
+def log(event, session, **fields):
+    """With the log_decisions option, append one line per decision to
+    decisions.jsonl in the data folder: numbers and states only, never the
+    text of a message, so thresholds can be tuned on real use later."""
+    if not option("log_decisions"):
+        return
+    try:
+        path = STATE_DIR / "decisions.jsonl"
+        if path.exists() and path.stat().st_size > LOG_MAX_BYTES:
+            os.replace(path, STATE_DIR / "decisions.1.jsonl")
+        manifest = Path(__file__).resolve().parents[1] / ".claude-plugin" / "plugin.json"
+        version = (read_json(manifest) or {}).get("version")
+        record = {"t": round(time.time(), 3), "event": event, "session": session,
+                  "version": version, **fields}
+        with open(path, "a") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------- Jev
@@ -482,7 +501,7 @@ def status(answers, current, source="turn", language="en", ask=False, repeat=Fal
     compared. `source` is "live" (status line) or "turn" (last Stop).
     `repeat` means the same switch was already suggested for this level on the
     previous message and the user stayed put: say it briefly, without steps.
-    `desktop` words the stop step for the desktop app (a stop button, not Esc).
+    `desktop` words the switch for the desktop app (the effort bar, not /effort).
     """
     m = MESSAGES[language]
     kind, rec, conf = verdict(answers, current)
@@ -500,7 +519,9 @@ def status(answers, current, source="turn", language="en", ask=False, repeat=Fal
     if ask:
         return kind, m[kind + "_ask"].format(rec=rec, conf=conf, where=where)
     client = "desktop" if desktop else "terminal"
-    return kind, m[kind].format(rec=rec, conf=conf, where=where, stop=m["stop_" + client],
+    # A switch made while Claude works applies from its next step, so there's
+    # no need to stop the turn.
+    return kind, m[kind].format(rec=rec, conf=conf, where=where,
                                 switch=m["switch_" + client].format(rec=rec))
 
 
@@ -567,7 +588,7 @@ def transcript_wait(session):
     return 6.0 if source == "fork" else 2.0
 
 
-def go_ahead(session, m, quiet):
+def go_ahead(session, m, quiet, exact=True):
     """A go-ahead starts work Jev can't see (it was planned earlier, often in
     files), yet it's when the level matters most. With ask_first, hand the
     sizing to Claude, which knows the work, and have it check the live level."""
@@ -587,6 +608,7 @@ def go_ahead(session, m, quiet):
         # the user's answer to an earlier switch question, so the "stay"
         # memory is left alone.
         write_json(state_file("tip", session), {"t": now, "asked": True, "ask_rec": None})
+    log("goahead", session, exact=exact, ask_first=ask, desktop=in_desktop_app())
     if out:
         emit(out)
 
@@ -619,6 +641,9 @@ def typed(prompt):
 def on_prompt(data):
     prompt = (data.get("prompt") or "").strip()
     if not typed(prompt):
+        if prompt:
+            log("skipped", data.get("session_id"),
+                reason="wrapper" if prompt.startswith(WRAPPERS) else "command")
         return
     m = MESSAGES[lang()]
     key = api_key()
@@ -650,6 +675,7 @@ def on_prompt(data):
     except Exception as e:
         # Still mark that a prompt arrived (see on_stop).
         write_json(state_file("advice", session), {"kind": "error", "t": time.time()})
+        log("error", session, error=type(e).__name__, code=getattr(e, "code", None))
         if getattr(e, "code", None) in (401, 403):
             emit({"systemMessage": m["bad_key"]})
         elif not quiet:
@@ -668,7 +694,7 @@ def on_prompt(data):
     if kind == "unclear" and turns:
         # A go-ahead in words Jev can't place ("OK, commit the spec and start
         # phase 0"): the work it starts was planned earlier, often in files.
-        go_ahead(session, m, quiet)
+        go_ahead(session, m, quiet, exact=False)
         return
     # A switch in the same direction from the same level was already shown,
     # and the user let a turn run since: they chose to stay. Say it briefly
@@ -718,6 +744,15 @@ def on_prompt(data):
     if context:
         out["hookSpecificOutput"] = {"hookEventName": "UserPromptSubmit",
                                      "additionalContext": context}
+    eff = answers["effort"]
+    log("prompt", session, kind=kind, rec=rec, share=round(conf or 0, 4),
+        current=current, source=source, repeat=repeat, check=check, asked=asked,
+        shown=bool(text), choice=eff.get("choice"), confidence=eff.get("confidence"),
+        probabilities=eff.get("probabilities"), handoff=answers["handoff_ambiguous"].get("noul"),
+        message_chars=len(prompt), context_messages=len(turns), ask_first=ask_first,
+        quiet=quiet, desktop=in_desktop_app(), language=lang(),
+        thresholds={"switch": SWITCH_MIN, "fit": FIT_MIN, "confidence": CONFIDENCE_MIN,
+                    "unclear": UNCLEAR_MIN, "ambiguity": AMBIGUITY_MIN})
     if out:
         emit(out)
 
@@ -771,6 +806,9 @@ def on_stop(data):
     kept = {d: v for d, v in stay.items() if isinstance(v, dict) and v.get("cur") == level}
     if kept != stay:
         write_json(state_file("stay", session), kept)
+    reply = data.get("last_assistant_message") or ""
+    log("stop", session, level=level, after_ask=bool(rec.get("after_ask")),
+        reply_chars=len(reply), question=asked_a_question(reply, tip.get("ask_rec")))
 
 
 def on_model_switch(data):

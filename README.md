@@ -46,7 +46,7 @@ Paste your key when Claude Code asks; it's kept in secure storage and the plugin
 
 | Line | Meaning |
 |---|---|
-| `⬆ effort: needs high (0.99) · was low → Esc, /effort high, continue` | Needs more effort than you have. The first time, it tells you how to switch (in the desktop app: "stop, set high in the bar, continue"); if you stay put, later repeats are shorter. |
+| `⬆ effort: needs high (0.99) · was low → /effort high now, no stop needed` | Needs more effort than you have. The first time, it tells you how to switch (in the desktop app: "set high in the bar now"); if you stay put, later repeats are shorter. |
 | `⬇ effort: low is enough (0.95) · was max → /effort low` | You're spending more than this needs. |
 | `✓ effort: medium fits this (0.91) · last turn ran on medium` | The level your last turn ran on suits this message. If you've switched since, compare with that. |
 | `○ effort: high fits this (0.98)` | The recommendation, when there's nothing trustworthy to compare with yet (a session's first message, or right after you pressed Esc to switch). |
@@ -60,7 +60,7 @@ The number is how much of Jev's whole answer backs the line: for a switch, the s
 
 ## Acting on a tip
 
-- **To apply it to the current message:** stop Claude, switch, then send `continue`. Claude still has your request and picks it up at the new level. In the terminal that's Esc and `/effort high`; in the desktop app it's the stop button and the effort control in the bar under the input box. The line is worded for the client you're in. This works the same in both: once a message is sent, Claude starts at the current level, and a switch applies from the next message.
+- **To apply it to the current message:** just switch, without stopping Claude. A switch made while Claude works applies from its next step: Claude Code's docs say so for `/effort`, and the desktop app's transcripts show the same for the effort bar. Only the step already running stays on the old level. In the terminal that's `/effort high`; in the desktop app, the effort control in the bar under the input box. The line is worded for the client you're in.
 - **Or let Claude wait for you:** turn on `ask_first`. When a message looks like it needs a different level, higher or lower, Claude asks whether to switch before it does any work, and waits for your answer. On `max` for a quick question, it offers to drop to `low`; on `low` for a tricky bug, it offers `high`. It asks once per situation; if you choose to stay, it won't keep asking. On a session's first message, when the plugin hasn't seen your level yet, Claude reads it first (one quick `echo $CLAUDE_EFFORT`) and asks only if it's off. This is the easiest way in the desktop app.
 - In the terminal, `/effort <level>` also saves that level as your default for the model; to change just this session, open `/effort` and press `s`. In the desktop app, use the effort control under the input box. (Typing `/effort <level>` there also works but changes this session only, and the label under the input box may keep showing the old level.)
 
@@ -73,6 +73,7 @@ Set them when you enable the plugin, or later under `/plugin`.
 | `language` | `en` | `zh` for Chinese lines. |
 | `quiet` | off | Only show a line when a switch is suggested (or a hand-off needs a spec). |
 | `ask_first` | off | When a message needs a different level (up or down), Claude asks before it starts. |
+| `log_decisions` | off | Keep a local log of Jev's probabilities and each decision (numbers only, never message text) in the plugin's data folder, `decisions.jsonl`, to tune the thresholds on real use. See [PRIVACY.md](PRIVACY.md). |
 
 ## Optional: status line (terminal)
 

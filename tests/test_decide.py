@@ -102,9 +102,12 @@ class Status(unittest.TestCase):
         self.assertIn("low fits this", text)
         self.assertIn("last turn ran on low", text)
 
-    def test_stop_step_worded_per_client(self):
-        self.assertIn("→ Esc,", ea.status(answers("high"), "low")[1])
-        self.assertIn("→ stop, set high in the bar", ea.status(answers("high"), "low", desktop=True)[1])
+    def test_switch_worded_per_client_without_stopping(self):
+        # A switch made while Claude works applies from its next step (seen in
+        # desktop transcripts; documented for /effort), so no stop/continue.
+        self.assertIn("→ /effort high now, no stop needed", ea.status(answers("high"), "low")[1])
+        self.assertIn("→ set high in the bar now", ea.status(answers("high"), "low", desktop=True)[1])
+        self.assertIn("现在就在底栏选 high，不用停", ea.status(answers("high"), "low", "turn", "zh", desktop=True)[1])
         self.assertIn("→ set low in the bar", ea.status(answers("low"), "max", desktop=True)[1])
 
     def test_client_detected_from_entrypoint(self):
@@ -291,17 +294,17 @@ class Flow(Base):
 
     def test_repeated_tip_is_short_after_the_user_stayed(self):
         self.stop("low")
-        self.assertIn("Esc", self.line("high"))
+        self.assertIn("/effort high now", self.line("high"))
         self.stop("low")  # let it run on low
         again = self.line("high")
         self.assertIn("needs high", again)
         self.assertIn("was low", again)
-        self.assertNotIn("Esc", again)
+        self.assertNotIn("/effort", again)
         self.stop("low")
         # Same direction from the same level: still brief, though Jev's pick moved.
         again = self.line("max")
         self.assertIn("needs max", again)
-        self.assertNotIn("Esc", again)
+        self.assertNotIn("/effort", again)
 
     def test_ask_mode_asks_once_per_situation(self):
         os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
@@ -802,6 +805,43 @@ class Robustness(Base):
         self.assertNotIn("hookSpecificOutput", out)
         self.assertFalse(ea.asked_a_question("Done.", "high"))
         self.assertTrue(ea.asked_a_question("这像是 high 档的任务，当前是 low，要切换吗", "high"))
+
+
+class DecisionLog(Base):
+    def records(self):
+        path = self.tmp / "decisions.jsonl"
+        return [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
+
+    def test_off_by_default(self):
+        self.stop("low")
+        self.prompt("high")
+        self.assertEqual(self.records(), [])
+
+    def test_numbers_only_never_message_text(self):
+        os.environ["CLAUDE_PLUGIN_OPTION_LOG_DECISIONS"] = "true"
+        self.stop("low", last_assistant_message="SECRET-REPLY-TEXT")
+        self.prompt("high", text="SECRET-PROMPT-TEXT fix the bug")
+        self.event({"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "continue"})
+        self.event({"hook_event_name": "UserPromptSubmit", "session_id": "s",
+                    "prompt": "<task-notification>SECRET-TASK</task-notification>"})
+        self.stop("high", last_assistant_message="Done.")
+        raw = (self.tmp / "decisions.jsonl").read_text()
+        for secret in ("SECRET-PROMPT-TEXT", "SECRET-REPLY-TEXT", "SECRET-TASK"):
+            self.assertNotIn(secret, raw)
+        events = [r["event"] for r in self.records()]
+        self.assertEqual(events, ["stop", "prompt", "goahead", "skipped", "stop"])
+        p = self.records()[1]
+        self.assertEqual((p["kind"], p["rec"], p["current"]), ("up", "high", "low"))
+        self.assertIn("high", p["probabilities"])
+        self.assertEqual(p["message_chars"], len("SECRET-PROMPT-TEXT fix the bug"))
+        self.assertEqual(self.records()[-1]["level"], "high")
+
+    def test_log_rotates_when_large(self):
+        os.environ["CLAUDE_PLUGIN_OPTION_LOG_DECISIONS"] = "true"
+        (self.tmp / "decisions.jsonl").write_text("x" * (ea.LOG_MAX_BYTES + 1))
+        self.prompt("high")
+        self.assertTrue((self.tmp / "decisions.1.jsonl").exists())
+        self.assertEqual(len(self.records()), 1)
 
 
 if __name__ == "__main__":

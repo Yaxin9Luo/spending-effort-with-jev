@@ -17,6 +17,7 @@ How TypeSafe handles that data is covered by TypeSafe's [privacy policy](https:/
 
 - Your API key is kept in Claude Code's secure storage (the plugin's `sensitive` option). The plugin reads it only from that option.
 - Small state files go in the plugin's data directory, `~/.claude/plugins/data/` (or `~/.claude/spending-effort-with-jev/` if Claude Code doesn't set one): the level and time of your last turn together with the last 3,000 characters of Claude's last reply (used as context if the transcript isn't readable yet), the last advice, which switches you've already seen, and how the session started. Files untouched for 14 days are deleted when a session starts.
+- Only if you turn on `log_decisions`: `decisions.jsonl` in the same folder gets one line per message and per turn, with Jev's probabilities, the plugin's decision, the level each turn ran on, the session id, and lengths (characters, number of context messages). It never contains the text of your messages or of Claude's replies. It grows to 5 MB, then the previous file is kept as `decisions.1.jsonl`. Delete either file any time.
 
 ## Turning it off
 

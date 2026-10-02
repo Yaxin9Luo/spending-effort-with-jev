@@ -42,6 +42,12 @@
       "title": "Ask first",
       "description": "When a message looks like it needs a different effort level (higher or lower), Claude asks whether to switch before it starts.",
       "default": false
+    },
+    "log_decisions": {
+      "type": "boolean",
+      "title": "Log decisions",
+      "description": "Keep a local log of Jev's probabilities and the plugin's decisions (numbers only, never message text) in the plugin's data folder, for tuning thresholds.",
+      "default": false
     }
   }
 }
