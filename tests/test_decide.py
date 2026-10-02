@@ -836,6 +836,10 @@ class DecisionLog(Base):
         self.assertEqual(p["message_chars"], len("SECRET-PROMPT-TEXT fix the bug"))
         self.assertEqual(self.records()[-1]["level"], "high")
 
+    def test_version_matches_the_manifest(self):
+        manifest = SCRIPTS.parent / ".claude-plugin" / "plugin.json"
+        self.assertEqual(ea.VERSION, json.loads(manifest.read_text())["version"])
+
     def test_log_rotates_when_large(self):
         os.environ["CLAUDE_PLUGIN_OPTION_LOG_DECISIONS"] = "true"
         (self.tmp / "decisions.jsonl").write_text("x" * (ea.LOG_MAX_BYTES + 1))

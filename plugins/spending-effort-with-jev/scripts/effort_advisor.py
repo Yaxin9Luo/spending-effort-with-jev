@@ -23,6 +23,7 @@ import threading
 import time
 from pathlib import Path
 
+VERSION = "0.2.7"         # kept equal to plugin.json by a test; logged with each decision
 CONFIDENCE_MIN = 0.7      # level unknown (e.g. first message): below this, only say "maybe"
 SWITCH_MIN = 0.7          # share of Jev's probability that must need a switch in one direction
 FIT_MIN = 0.7             # share within one level of yours needed to say it fits
@@ -226,10 +227,8 @@ def log(event, session, **fields):
         path = STATE_DIR / "decisions.jsonl"
         if path.exists() and path.stat().st_size > LOG_MAX_BYTES:
             os.replace(path, STATE_DIR / "decisions.1.jsonl")
-        manifest = Path(__file__).resolve().parents[1] / ".claude-plugin" / "plugin.json"
-        version = (read_json(manifest) or {}).get("version")
         record = {"t": round(time.time(), 3), "event": event, "session": session,
-                  "version": version, **fields}
+                  "version": VERSION, **fields}
         with open(path, "a") as f:
             f.write(json.dumps(record) + "\n")
     except Exception:
