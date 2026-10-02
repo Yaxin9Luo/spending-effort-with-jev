@@ -722,14 +722,18 @@ def on_prompt(data):
         emit(out)
 
 
-def asked_a_question(reply, level_off):
+def asked_a_question(reply, need=None):
     """Did the turn end on Claude's effort question rather than on finished
-    work? A question is short. When the level was off, any short reply counts
-    (Claude may ask without a question mark); otherwise it must end on one."""
+    work? The question is short and either ends on a question mark or, as the
+    injected context asks, talks about effort and names the level needed
+    (Claude may phrase it without a question mark). A short "Done." is work."""
     reply = reply.strip()
     if not 0 < len(reply) <= 600:
         return False
-    return level_off or "?" in reply[-200:] or "？" in reply[-200:]
+    if "?" in reply[-200:] or "？" in reply[-200:]:
+        return True
+    low = reply.lower()
+    return bool(need) and need in low and ("effort" in low or "档" in reply)
 
 
 def on_stop(data):
@@ -750,9 +754,8 @@ def on_stop(data):
         # user switch before answering; if it got on with the work, the level
         # this turn ran on holds for the next message.
         need = tip.get("ask_rec")
-        known = need in RANK and level in RANK
-        close = known and abs(RANK[need] - RANK[level]) < 1
-        if not close and asked_a_question(data.get("last_assistant_message") or "", known):
+        close = need in RANK and level in RANK and abs(RANK[need] - RANK[level]) < 1
+        if not close and asked_a_question(data.get("last_assistant_message") or "", need):
             rec["after_ask"] = True
         tip["asked"] = False
         write_json(state_file("tip", session), tip)

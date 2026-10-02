@@ -788,6 +788,21 @@ class Robustness(Base):
         self.stop("low", last_assistant_message="This needs high. Switch with /effort high and say continue, or tell me to go ahead as is.")
         self.assertIn("fits this", self.line("high", text="switched, go"))
 
+    def test_short_work_reply_is_not_a_question(self):
+        # Review regression: a short "Done." after a check where the level was
+        # off counted as Claude's question, so the plugin never compared again.
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
+        self.stop("low")
+        self.prompt("high")
+        self.stop("low", last_assistant_message="Needs high effort; switch first?")
+        self.prompt("high", text="go ahead as is")             # Claude rechecks, works
+        self.stop("low", last_assistant_message="Done.")
+        out = self.prompt("high", text="next: the retry logic")
+        self.assertIn("was low", out["systemMessage"])        # compared again, brief
+        self.assertNotIn("hookSpecificOutput", out)
+        self.assertFalse(ea.asked_a_question("Done.", "high"))
+        self.assertTrue(ea.asked_a_question("这像是 high 档的任务，当前是 low，要切换吗", "high"))
+
 
 if __name__ == "__main__":
     unittest.main()
