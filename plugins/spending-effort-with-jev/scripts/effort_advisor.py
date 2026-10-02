@@ -457,8 +457,11 @@ def verdict(answers, current):
     near = (sum(p for lv, p in real.items() if abs(RANK[lv] - RANK[current]) < 1)
             + probs.get("unclear", 0)) / total
     if near >= FIT_MIN:
-        # Name what the message needs; the line says what it was compared with.
-        return "match", top, near
+        # Name the likeliest level on the staying side (it can't be one that
+        # would need a switch); the line says what it was compared with.
+        near_levels = [lv for lv in LEVELS if abs(RANK[lv] - RANK[current]) < 1]
+        best = max(near_levels, key=real.get)
+        return "match", (best if real[best] > 0 else current), near
     return "unsure", top, real[top] / total
 
 
@@ -719,11 +722,14 @@ def on_prompt(data):
         emit(out)
 
 
-def asked_a_question(reply):
-    """A turn that ends on a short question (Claude asking whether to switch)
-    rather than on finished work."""
+def asked_a_question(reply, level_off):
+    """Did the turn end on Claude's effort question rather than on finished
+    work? A question is short. When the level was off, any short reply counts
+    (Claude may ask without a question mark); otherwise it must end on one."""
     reply = reply.strip()
-    return 0 < len(reply) <= 600 and ("?" in reply[-200:] or "？" in reply[-200:])
+    if not 0 < len(reply) <= 600:
+        return False
+    return level_off or "?" in reply[-200:] or "？" in reply[-200:]
 
 
 def on_stop(data):
@@ -744,8 +750,9 @@ def on_stop(data):
         # user switch before answering; if it got on with the work, the level
         # this turn ran on holds for the next message.
         need = tip.get("ask_rec")
-        close = need in RANK and level in RANK and abs(RANK[need] - RANK[level]) < 1
-        if not close and asked_a_question(data.get("last_assistant_message") or ""):
+        known = need in RANK and level in RANK
+        close = known and abs(RANK[need] - RANK[level]) < 1
+        if not close and asked_a_question(data.get("last_assistant_message") or "", known):
             rec["after_ask"] = True
         tip["asked"] = False
         write_json(state_file("tip", session), tip)
@@ -754,6 +761,13 @@ def on_stop(data):
         # Claude): the user still hasn't answered the question.
         rec["after_ask"] = True
     write_json(state_file("turn", session), rec)
+    # A switch tip only counts as declined while turns keep running on the
+    # level it was compared with; a turn on another level means the user
+    # switched (or was never there), so forget it.
+    stay = read_json(state_file("stay", session)) or {}
+    kept = {d: v for d, v in stay.items() if isinstance(v, dict) and v.get("cur") == level}
+    if kept != stay:
+        write_json(state_file("stay", session), kept)
 
 
 def on_model_switch(data):

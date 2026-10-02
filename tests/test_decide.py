@@ -624,8 +624,6 @@ class FirstMessageCheck(Base):
         self.assertIn("echo $CLAUDE_EFFORT", out["hookSpecificOutput"]["additionalContext"])
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class Robustness(Base):
@@ -753,3 +751,43 @@ class Robustness(Base):
         self.assertIn("log lines", ea._text(pasted))
         note = {"type": "user", "message": {"content": "<task-notification>done</task-notification>"}}
         self.assertEqual(ea._text(note), "")
+
+    def test_accepted_switch_is_not_remembered_as_a_decline(self):
+        # Review regression: the stay record was written when a tip was shown
+        # and never cleared, so after the user accepted a switch and later came
+        # back to that level, Claude stopped asking in that direction.
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
+        self.stop("low")
+        self.prompt("high")                                    # ⬆ from low
+        self.stop("low", last_assistant_message="Needs high; switch first?")
+        self.event({"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "continue"})
+        self.stop("high", last_assistant_message="Done. " * 200)  # the user switched
+        self.prompt("low", text="what does this flag do?")    # ⬇ from high
+        self.stop("high", last_assistant_message="Low is enough; switch?")
+        self.event({"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "continue"})
+        self.stop("low", last_assistant_message="It toggles caching. " * 50)  # switched down
+        out = self.prompt("high", text="now find the race in the scheduler")
+        self.assertIn("echo $CLAUDE_EFFORT", out["hookSpecificOutput"]["additionalContext"])
+
+    def test_fit_line_never_names_a_level_that_needs_a_switch(self):
+        # Review regression: with "unclear" counted toward staying, the ✓ line
+        # named Jev's top level even when that level was a switch away.
+        for probs in ({"low": 0.25, "high": 0.30, "unclear": 0.45},
+                      {"low": 0.26, "max": 0.28, "unclear": 0.46}):
+            kind, level, _ = ea.verdict(answers("high", 0.3, probs=probs), "low")
+            self.assertEqual((kind, level), ("match", "low"), probs)
+        self.assertEqual(ea.verdict(answers("high", 0.3, probs={"high": 0.4, "max": 0.35, "unclear": 0.25}),
+                                    "xhigh")[1], "high")
+
+    def test_short_reply_after_an_off_level_counts_as_the_question(self):
+        # Review regression: Claude asking without a question mark wasn't seen
+        # as a question, so the next message was compared with the old level.
+        os.environ["CLAUDE_PLUGIN_OPTION_ASK_FIRST"] = "true"
+        self.stop("low")
+        self.prompt("high")
+        self.stop("low", last_assistant_message="This needs high. Switch with /effort high and say continue, or tell me to go ahead as is.")
+        self.assertIn("fits this", self.line("high", text="switched, go"))
+
+
+if __name__ == "__main__":
+    unittest.main()
