@@ -144,6 +144,7 @@ describe('what is judged', () => {
   test('commands but not paths', () => {
     expect(isCommand('/effort high')).toBe(true)
     expect(isCommand('/spending-effort-with-jev:high continue')).toBe(true)
+    expect(isCommand('/修复 bug')).toBe(true) // command names in any script, as the v0.2 hook
     expect(isCommand('/Users/me/app/server.py crashes on start')).toBe(false)
   })
 
@@ -226,6 +227,22 @@ describe('context', () => {
     for (const text of wrapped) expect(writtenText({ role: 'user', text })).toBe('')
     expect(writtenText({ role: 'user', text: '<artifact-content-authored-by-others/>\nsummarise the review' })).toBe('summarise the review')
     expect(writtenText({ role: 'user', text: 'why does <b>bold</b> not render?' })).toBe('why does <b>bold</b> not render?')
+  })
+
+  test("blocks joined with nothing between them, as the engine's rows are", () => {
+    const joined: Array<[string, string]> = [
+      ['<system-reminder>\nToday is Monday.\n</system-reminder>fix this', 'fix this'],
+      ['fix this<system-reminder>Be brief.</system-reminder>', 'fix this'],
+      ['[Request interrupted by user]continue the review', 'continue the review'],
+      ['[Image: source: /tmp/shot.png]what is this?', 'what is this?'],
+      ['look at this<pasted_content id="1">log</pasted_content>', 'look at this<pasted_content id="1">log</pasted_content>'],
+    ]
+    for (const [text, words] of joined) expect(writtenText({ role: 'user', text })).toBe(words)
+  })
+
+  test("Claude's replies are its own words", () => {
+    expect(writtenText({ role: 'assistant', text: 'Base directory for this skill: is a line skills start with.' })).toContain('Base directory')
+    expect(writtenText({ role: 'assistant', text: 'Wrap it in <system-reminder>…</system-reminder> tags.' })).toContain('<system-reminder>')
   })
 
   test('cuts count characters, never half an emoji', () => {

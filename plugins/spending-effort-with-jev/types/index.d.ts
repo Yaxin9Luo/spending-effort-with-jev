@@ -17,6 +17,8 @@ export type Pending = {
   answers: Answers | null
   /** The message was a go-ahead: the work it starts was planned earlier. */
   isGoAhead: boolean
+  /** Why there is no answer: Jev failed, or refused the key. */
+  failure?: 'error' | 'badKey'
   /** When it was judged, epoch ms. */
   t: number
 }

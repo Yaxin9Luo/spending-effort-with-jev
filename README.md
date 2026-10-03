@@ -3,9 +3,11 @@
 **Know which `/effort` level each message needs, and switch with one key.** A Claude Code plugin: every message you type is read by [TypeSafe](https://typesafe.ai)'s Jev model, which judges how much effort the task deserves. Before Claude starts, you get a one-line verdict against the level Claude is about to run on, and when that level looks wrong, one key switches it.
 
 - **With `ask_first` on**, a dialog asks before Claude starts. On `low` for a tricky bug: "This looks like high-effort work, and the session is on low. Switch to high for it?" On `max` for a quick question, it offers to drop to `low`.
-- **With it off**, nothing waits on you: a band above the prompt offers `1: Switch to high  2: Keep low  0: Close`, and a switch applies from Claude's next step.
+- **With it off**, nothing waits on you: while Claude works, a band above the prompt offers `1: Switch to high  2: Keep low  0: Close`, and a switch applies from Claude's next step. Once the turn is over the digits stop working (a bare "1" is more likely your answer to Claude), and the band's buttons are clicked instead, or reached with ctrl+x tab in the terminal.
 
 It switches only when you say so. Needs Claude Code 2.1.287 or later: v0.3 is written as a mod (a TypeScript hooks module), which is what lets it see your live level and switch it.
+
+**Upgrading from v0.2:** if you set up its status line (a `statusLine` setting running `bin/statusline.py`), remove that setting; v0.3 shows its line itself.
 
 ## Install
 
@@ -31,11 +33,11 @@ Read its README first. Then:
 /plugin install spending-effort-with-jev@spending-effort-with-jev
 ```
 
-Paste your key when Claude Code asks; it's kept in secure storage and the plugin reads nothing else from your machine. Then `/reload-plugins`. Jev itself is a hosted API, so there's nothing else to install.
+Paste your key when Claude Code asks; it's kept in secure storage, and the plugin reads the key from nowhere else. Then `/reload-plugins`. Jev itself is a hosted API, so there's nothing else to install.
 
 ## What the lines mean
 
-The line shows in Claude Code's status area as soon as Claude's first request is about to go out.
+The line shows in Claude Code's status area as soon as Claude's first request is about to go out. On a model without effort levels, or with a token budget instead of a level, there's nothing to compare, so no line shows (the message is still sent to Jev).
 
 | Line | Meaning |
 |---|---|
@@ -43,20 +45,20 @@ The line shows in Claude Code's status area as soon as Claude's first request is
 | `⬇ effort: low is enough (0.95) · now max` | You're spending more than this needs. Same offer, downward. |
 | `✓ effort: medium fits this (0.91) · now medium` | Your level suits this message. |
 | `○ effort: maybe high (0.55), not sure · keep your level` | Jev's vote is split between staying and switching, so no advice. |
-| `○ effort: nothing to judge here · keep your level` | A bare "ok" with no conversation before it. |
-| `○ effort: go-ahead · keep your level` | A go-ahead whose work couldn't be sized (see [How it works](#how-it-works)). |
+| `○ effort: nothing to judge here · keep your level` | Jev found no task in the message (say, "run it" as your first message) and there's no conversation to size it from. |
+| `○ effort: go-ahead · keep your level` | A go-ahead ("ok", "continue") whose work couldn't be sized (see [How it works](#how-it-works)). |
 | `⬆ effort: high · you chose low` | You kept your level when this switch was offered; it isn't offered again from that level. |
-| `… · sending high (your setting: low)` | You switched here: Claude's requests go out on `high` while the setting under the input box stays `low`. |
+| `… · sending high (your setting: low)` | You switched here: Claude's requests go out on `high` while the setting under the input box stays `low`. Every line carries it while that lasts. |
 | `⚠ effort: long run, fuzzy spec → have Claude interview you, then go max` | A long hands-off task with open questions (also a toast). More effort won't fix a wrong reading of the task; a few questions first will. |
 
 **"now low"** is the level Claude's request is about to run on: your setting, or the level you switched to here. The mod reads it from the request itself, so a switch you made a moment ago is never missed.
 
-The number is how much of Jev's whole answer backs the line: for a switch, the share on levels one or more steps away in that direction; for "fits", the share on your level (for xhigh, on high or max) plus "unclear", which gives no reason to switch.
+The number is how much of Jev's whole answer backs the line: for a switch, the share on levels one or more steps away in that direction; for "fits", the share on your level (for xhigh, on high or max) plus "unclear", which gives no reason to switch. A go-ahead sized from the conversation has no vote behind it, so its line says `(go-ahead)` instead.
 
 ## Switching
 
 - **A switch lasts for the session and applies from Claude's next step.** Claude Code has no way for a plugin to change your effort setting, so the mod rewrites the level on each request of the main conversation instead. The effort control under the input box keeps showing your setting; the status line says `sending high (your setting: low)` while the mod is rewriting. Subagents' requests are left alone.
-- **Your own setting wins.** Change the effort yourself (the control under the input box, or `/effort`) and the mod stops rewriting from the next request. A switch also ends when the session restarts.
+- **Your own setting wins.** Run `/effort` (any level, including the one you had) or pick a different level under the input box, and the mod stops rewriting from the next request. Picking the level the control already shows changes nothing it can see, so use `/effort` for that. A switch also ends when the session restarts.
 - **Keep** remembers the direction: from the same level, a switch the same way isn't offered again, even if Jev moves between high and max; the status line just notes it. Once your level changes, it can be offered again. Closing the band or dismissing the dialog changes nothing and remembers nothing.
 - With the band, the switch can't touch the request already running; it applies from Claude's next one. With `ask_first`, the dialog comes before the first request, so the whole turn runs on the level you pick.
 
@@ -67,7 +69,7 @@ Set them when you enable the plugin, or later under `/plugin`.
 | Option | Default | What it does |
 |---|---|---|
 | `language` | `en` | `zh` for Chinese lines. |
-| `quiet` | off | Only show a line when a switch is suggested (or a hand-off needs a spec). |
+| `quiet` | off | Only show a line when a switch is suggested or in effect, a hand-off needs a spec, or the key is rejected. |
 | `ask_first` | off | When a message needs a different level (up or down), a dialog asks before Claude starts. Off: the band above the prompt offers the switch without holding Claude up. |
 | `log_decisions` | off | Keep a local log of Jev's probabilities and each decision (numbers only, never message text) in `~/.claude/plugins/data/spending-effort-with-jev-spending-effort-with-jev/decisions.jsonl`, to tune the thresholds on real use. See [PRIVACY.md](PRIVACY.md). |
 
@@ -138,7 +140,7 @@ This measures agreement with the post's rule of thumb as the annotators applied 
 
 ## Privacy and cost
 
-- **Privacy:** each message you type goes to `api.typesafe.ai` in full (a giant paste is cut to about 20k tokens), with Claude's latest reply (its last 3,000 characters) and older conversation, about 1,500 tokens: your messages whole, Claude's older replies trimmed to their last 1,500 characters. For a go-ahead, the last ~6,000 tokens of conversation go to Claude Code's small model instead, on your own Claude account. Don't install the plugin if that's not OK for your work. Details in [PRIVACY.md](PRIVACY.md).
+- **Privacy:** each message you type goes to `api.typesafe.ai` in full (a giant paste is cut to about 20k tokens), with Claude's latest reply (its last 3,000 characters) and older conversation, about 1,500 tokens: your messages whole, Claude's older replies trimmed to their last 1,500 characters. To size a go-ahead, the last ~6,000 tokens of conversation also go to Claude Code's small model, on your own Claude account; a bare "ok" or "continue" goes only there. Don't install the plugin if that's not OK for your work. Details in [PRIVACY.md](PRIVACY.md).
 - **Cost:** Jev is cheap. The 220-message evaluation above cost a few cents. Sizing a go-ahead is one small-model call on your Claude plan.
 - **Speed:** your message waits for Jev (about 1 s). If Jev doesn't answer in 6 s, you get "no tip this time" and the message goes through; sizing a go-ahead waits up to 6 s more. Nothing else is waited on.
 

@@ -69,9 +69,9 @@ export function isGoAhead(text: string): boolean {
   return GO_AHEADS.has(text.toLowerCase().replace(/^[\s.!。！~～]+|[\s.!。！~～]+$/g, ''))
 }
 
-/** A slash command; a path like "/Users/me/app.py crashes" is typed text. */
+/** A slash command; a path like "/Users/me/app.py crashes" is typed text. Names in any script, as Python's \w. */
 export function isCommand(text: string): boolean {
-  return /^\/[\w:.-]+(\s|$)/.test(text)
+  return /^\/[\p{L}\p{N}_:.-]+(\s|$)/u.test(text)
 }
 
 /** Wrappers Claude Code sends as prompts: a task finishing, a local command's output. */
@@ -121,10 +121,10 @@ function tail(text: string, n: number): string {
 }
 
 /**
- * Messages Claude Code writes into the conversation as the user's: a skill's
- * instructions, another session's message, compaction summaries, notices.
- * The transcript marks them (isMeta, isCompactSummary); the rows a mod reads
- * don't, so they are known by how they start.
+ * Messages Claude Code writes into the conversation as the user's. The engine
+ * leaves the ones the transcript marks isMeta (a skill's instructions,
+ * notices) out of the rows a mod reads, but keeps compaction summaries; the
+ * rest are here in case an engine keeps them too.
  */
 const NOTICES = [
   'This session is being continued from a previous conversation',
@@ -133,21 +133,25 @@ const NOTICES = [
   'Your response above was',
 ]
 
+/**
+ * A block Claude Code wraps in a tag of its own (<system-reminder>,
+ * <command-name>, <local-command-stdout>, <ide_selection>, ...: names with a
+ * hyphen or underscore), never <pasted_content>, which is the person's.
+ * The rows join a message's text blocks with nothing between them, so a
+ * block can sit anywhere on a line.
+ */
+const WRAPPED = /<(?!pasted_content\b)([a-z][a-z0-9]*[-_][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>/g
+const WRAPPED_EMPTY = /<[a-z][a-z0-9]*[-_][\w-]*(?:\s[^>]*)?\/>/g
+/** Placeholders for an attachment and interrupt markers. */
+const MARKERS = /\[(?:Image:|Request interrupted by user)[^\]\n]*\]/g
+
 /** What a person or Claude actually wrote: no reminders, notices or markers. */
 export function writtenText(message: MessageLike): string {
-  if (message.role === 'user' && message.toolResults && message.toolResults.length > 0) return ''
-  let text = String(message.text ?? '')
-  // A block Claude Code wraps in a tag (a reminder, a task notification, a
-  // command and its output) is not anyone's words; text the person pasted is.
-  text = text
-    .replace(/^[ \t]*<(?!pasted_content\b)([A-Za-z][\w:-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>[ \t]*$/gm, '')
-    .replace(/^[ \t]*<[A-Za-z][\w:-]*(?:\s[^>]*)?\/>[ \t]*$/gm, '')
-  if (NOTICES.some(notice => text.trimStart().startsWith(notice))) return ''
-  return text
-    .split('\n')
-    .filter(line => !line.trimStart().startsWith('[Image:') && !line.trimStart().startsWith('[Request interrupted'))
-    .join('\n')
-    .trim()
+  const text = String(message.text ?? '')
+  if (message.role !== 'user') return text.trim() // Claude's own words; nothing is added to them
+  if (message.toolResults && message.toolResults.length > 0) return ''
+  const words = text.replace(WRAPPED, '').replace(WRAPPED_EMPTY, '').replace(MARKERS, '').trim()
+  return NOTICES.some(notice => words.startsWith(notice)) ? '' : words
 }
 
 /**
@@ -256,7 +260,8 @@ export function certain(level: Level): Answers {
 // ------------------------------------------------------------- the verdict
 
 export type Kind = 'ambiguous' | 'unclear' | 'unsure' | 'fits' | 'match' | 'up' | 'down'
-export type Verdict = { kind: Kind; level: Level | null; share: number }
+/** `sized`: a go-ahead the small model sized, so `share` is no vote. */
+export type Verdict = { kind: Kind; level: Level | null; share: number; sized?: boolean }
 
 /**
  * Decide from Jev's whole distribution. "fits" is for when no level is known
@@ -319,16 +324,17 @@ export function lang(value: unknown): Lang {
   return String(value ?? 'en').trim().toLowerCase() === 'zh' ? 'zh' : 'en'
 }
 
-const pct = (share: number) => share.toFixed(2)
+/** The number on a line: the share of Jev's answer, or what stands in for it on a sized go-ahead. */
+const num = (v: Verdict, sized: string) => (v.sized ? sized : v.share.toFixed(2))
 
 /** Everything the mod shows, per language. Plain text: status lines don't render markdown. */
 export const WORDS = {
   en: {
-    up: (v: Verdict, cur: string) => `⬆ effort: needs ${v.level} (${pct(v.share)}) · now ${cur}`,
-    down: (v: Verdict, cur: string) => `⬇ effort: ${v.level} is enough (${pct(v.share)}) · now ${cur}`,
-    match: (v: Verdict, cur: string) => `✓ effort: ${v.level} fits this (${pct(v.share)}) · now ${cur}`,
-    fits: (v: Verdict) => `○ effort: ${v.level} fits this (${pct(v.share)})`,
-    unsure: (v: Verdict) => `○ effort: maybe ${v.level} (${pct(v.share)}), not sure · keep your level`,
+    up: (v: Verdict, cur: string) => `⬆ effort: needs ${v.level} (${num(v, 'go-ahead')}) · now ${cur}`,
+    down: (v: Verdict, cur: string) => `⬇ effort: ${v.level} is enough (${num(v, 'go-ahead')}) · now ${cur}`,
+    match: (v: Verdict, cur: string) => `✓ effort: ${v.level} fits this (${num(v, 'go-ahead')}) · now ${cur}`,
+    fits: (v: Verdict) => `○ effort: ${v.level} fits this (${num(v, 'go-ahead')})`,
+    unsure: (v: Verdict) => `○ effort: maybe ${v.level} (${num(v, 'go-ahead')}), not sure · keep your level`,
     unclear: '○ effort: nothing to judge here · keep your level',
     goAhead: '○ effort: go-ahead · keep your level',
     ambiguous: '⚠ effort: long run, fuzzy spec → have Claude interview you, then go max',
@@ -349,14 +355,14 @@ export const WORDS = {
     close: 'Close',
     switched: (level: string, setting: string) =>
       `effort: sending ${level} from the next step (your setting stays ${setting})`,
-    released: (setting: string) => `○ effort: back on your setting, ${setting}`,
+    released: (setting?: string) => (setting ? `○ effort: back on your setting, ${setting}` : '○ effort: back on your setting'),
   },
   zh: {
-    up: (v: Verdict, cur: string) => `⬆ effort：需要 ${v.level}（${pct(v.share)}）· 当前 ${cur}`,
-    down: (v: Verdict, cur: string) => `⬇ effort：${v.level} 就够（${pct(v.share)}）· 当前 ${cur}`,
-    match: (v: Verdict, cur: string) => `✓ effort：这条适合 ${v.level}（${pct(v.share)}）· 当前 ${cur}`,
-    fits: (v: Verdict) => `○ effort：这条适合 ${v.level}（${pct(v.share)}）`,
-    unsure: (v: Verdict) => `○ effort：可能是 ${v.level}（${pct(v.share)}），把握不大 · 保持当前档位`,
+    up: (v: Verdict, cur: string) => `⬆ effort：需要 ${v.level}（${num(v, '开工指令')}）· 当前 ${cur}`,
+    down: (v: Verdict, cur: string) => `⬇ effort：${v.level} 就够（${num(v, '开工指令')}）· 当前 ${cur}`,
+    match: (v: Verdict, cur: string) => `✓ effort：这条适合 ${v.level}（${num(v, '开工指令')}）· 当前 ${cur}`,
+    fits: (v: Verdict) => `○ effort：这条适合 ${v.level}（${num(v, '开工指令')}）`,
+    unsure: (v: Verdict) => `○ effort：可能是 ${v.level}（${num(v, '开工指令')}），把握不大 · 保持当前档位`,
     unclear: '○ effort：这条看不出任务 · 保持当前档位',
     goAhead: '○ effort：开工指令 · 保持当前档位',
     ambiguous: '⚠ effort：要放手长跑，但需求有歧义 → 先让 Claude 采访你，再切到 max',
@@ -376,7 +382,7 @@ export const WORDS = {
       `✦ ${o.direction === 'up' ? '需要' : '够用：'} ${o.level} · 当前 ${o.from}`,
     close: '关闭',
     switched: (level: string, setting: string) => `effort：从下一步起用 ${level}（你的设置仍是 ${setting}）`,
-    released: (setting: string) => `○ effort：已改回你的设置 ${setting}`,
+    released: (setting?: string) => (setting ? `○ effort：已改回你的设置 ${setting}` : '○ effort：已改回你的设置'),
   },
 } as const
 

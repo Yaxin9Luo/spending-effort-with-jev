@@ -70,6 +70,7 @@ function world(on: any, setup: Setup): World {
     w.files[e.path] = e.text
     return { value: undefined }
   })
+  on('command.run', ($: any, e: any) => ({ text: `ran /${e.command} ${e.args}` }))
   // The engine's own band is nothing; the plugin draws over it.
   on('ui.render', { component: 'AbovePrompt' }, ($: any, e: any) => {
     const { Box } = $.ui.resolve(e)
@@ -88,8 +89,11 @@ let turns = 0
 const TYPED = { wait: false, origin: { kind: 'composer' } } as const
 
 /** One model request of the main loop (or a subagent's), at the session's `effort` setting. */
-async function step($: any, effort: string, index = 0, agentId?: string) {
-  const stream = $.turn.step({ turnId: `turn-${turns}`, index, model: 'claude-opus-5-5', effort, messageCount: 3, ...(agentId ? { agentId } : {}) })
+async function step($: any, effort: string | undefined, index = 0, agentId?: string) {
+  const stream = $.turn.step({
+    turnId: `turn-${turns}`, index, model: 'claude-opus-5-5', messageCount: 3,
+    ...(effort !== undefined ? { effort } : {}), ...(agentId ? { agentId } : {}),
+  })
   for await (const _ of stream) {
     // drain
   }
@@ -97,7 +101,7 @@ async function step($: any, effort: string, index = 0, agentId?: string) {
 }
 
 /** A typed message, then the turn's first request at `effort`. */
-async function send($: any, text: string, effort: string) {
+async function send($: any, text: string, effort: string | undefined) {
   turns += 1
   await $.prompt.submit({ text, ...TYPED })
   await step($, effort)
@@ -162,9 +166,30 @@ describe('ask_first', () => {
     expect(w.asked.length).toBe(1)
     expect(w.asked[0]).toContain('high')
     expect(w.sent).toEqual(['high'])
-    expect(w.statuses[w.statuses.length - 1]).toBe('✓ effort: high fits this (0.99) · now high · sending high (your setting: low)')
+    expect(w.statuses.at(-1)).toBe('✓ effort: high fits this (0.99) · now high · sending high (your setting: low)')
     await step($, 'low', 1)
     expect(w.sent).toEqual(['high', 'high'])
+  })
+
+  test('running /effort takes back control, even at the level the session had', { options: ASK }, async ($, on) => {
+    const w = world(on, { jev: [jev('high', 0.97)], pick: 0 })
+    mock.clock(on)
+    await send($, 'fix the flaky integration test', 'low') // switched to high
+    await $.command.run({ command: 'effort', args: 'low', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+    expect(w.statuses.at(-1)).toBe('○ effort: back on your setting')
+    await step($, 'low', 1)
+    expect(w.sent).toEqual(['high', 'low'])
+  })
+
+  test('while a switch is in effect, every line says so', { options: ASK }, async ($, on) => {
+    const w = world(on, { jev: [jev('high', 0.97), 500], pick: 0, classify: undefined })
+    mock.clock(on)
+    await send($, 'fix the flaky integration test', 'low') // switched to high
+    await send($, 'continue', 'low') // a go-ahead with nothing to size it from
+    expect(w.statuses.at(-1)).toBe('○ effort: go-ahead · keep your level · sending high (your setting: low)')
+    await send($, 'and the next one', 'low') // Jev fails
+    expect(w.statuses.at(-1)).toBe("○ effort: no tip this time (Jev didn't answer) · sending high (your setting: low)")
+    expect(w.sent).toEqual(['high', 'high', 'high'])
   })
 
   test('the setting under the input box takes back control', { options: ASK }, async ($, on) => {
@@ -336,6 +361,7 @@ describe('go-aheads', () => {
     expect(w.jevCalls.length).toBe(0)
     expect(w.asked.length).toBe(1)
     expect(w.sent).toEqual(['high'])
+    expect(w.statuses.at(-1)).toBe('✓ effort: high fits this (go-ahead) · now high · sending high (your setting: low)')
   })
 
   test("a go-ahead Jev can't place is sized the same way", { options: ASK }, async ($, on) => {
@@ -397,11 +423,38 @@ describe('failures never block a prompt', () => {
 })
 
 describe('quiet', () => {
-  test('only switches are shown', { options: { ...ASK, quiet: true } }, async ($, on) => {
+  test('a fit shows nothing', { options: { ...ASK, quiet: true } }, async ($, on) => {
     const w = world(on, { jev: [jev('high', 0.97)] })
     mock.clock(on)
     await send($, 'fix the flaky integration test', 'high')
-    expect(w.statuses.length).toBe(0)
+    expect(w.statuses).toEqual([undefined])
+  })
+
+  test('a line that no longer holds is cleared, not left up', { options: { ...ASK, quiet: true } }, async ($, on) => {
+    const w = world(on, { jev: [jev('high', 0.97), jev('high', 0.97)], pick: 1 })
+    mock.clock(on)
+    await send($, 'fix the flaky integration test', 'low') // keep low
+    expect(w.statuses.at(-1)).toBe('⬆ effort: high · you chose low')
+    await send($, 'fix the next one', 'high') // the person moved to high: a fit
+    expect(w.statuses.at(-1)).toBe(undefined)
+  })
+
+  test('a rejected key still shows', { options: { ...ASK, quiet: true } }, async ($, on) => {
+    const w = world(on, { jev: [401] })
+    mock.clock(on)
+    await send($, 'fix the flaky integration test', 'low')
+    expect(w.statuses.at(-1)).toContain('rejected the API key')
+  })
+})
+
+describe('models without effort', () => {
+  test('nothing is compared and the last line goes', { options: ASK }, async ($, on) => {
+    const w = world(on, { jev: [jev('high', 0.97)] })
+    mock.clock(on)
+    await send($, 'fix the flaky integration test', undefined)
+    expect(w.asked.length).toBe(0)
+    expect(w.sent).toEqual([undefined])
+    expect(w.statuses).toEqual([undefined])
   })
 })
 

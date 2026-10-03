@@ -35,7 +35,7 @@
     "quiet": {
       "type": "boolean",
       "title": "Quiet",
-      "description": "Only show a line when a switch is suggested.",
+      "description": "Only show a line when a switch is suggested or in effect, a hand-off needs a spec, or the key is rejected.",
       "default": false
     },
     "ask_first": {

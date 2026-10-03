@@ -3,15 +3,30 @@ the eval measured (python/effort_advisor.py): same inputs, same verdicts,
 same request to Jev, same context. Needs bun; skipped without it.
 Run: python3 -m unittest tests.test_parity
 
+The conversation is generated the way each side reads it: transcript
+entries for the hook, and for the mod the rows Claude Code builds from them
+(isMeta messages left out, a message's text blocks joined with nothing
+between them).
+
 Known, intended differences (not generated here):
-- The mod reads the conversation as Claude Code's rows, whose text blocks
-  are joined, so it drops a tagged block by the tag at the start of a line,
-  where the hook dropped any block that starts with "<".
-- The mod knows Claude Code's own messages (skill instructions, notices) by
-  how they start; the hook used the transcript's isMeta flag. Here they are
-  flagged isMeta for the hook, as Claude Code writes them.
-- The mod refuses true/false where Jev's answer has a number; the hook took
-  them as 1/0.
+- Only what a person typed is judged (origin composer or bridge); the hook
+  also judged `claude -p`/SDK turns, scheduled prompts and other sessions'
+  messages unless they started with a wrapper tag.
+- The rows join a message's text blocks with nothing between them, so the mod
+  drops Claude Code's own tags (<system-reminder>, <command-name>, ...: names
+  with a hyphen or underscore) wherever they are, where the hook dropped any
+  block starting with "<". A person's own <b>...</b> stays. Claude's replies
+  are kept as written. Two text blocks of a person's own words in one message
+  run together.
+- `[Image: ...]` and `[Request interrupted by user...]` markers are removed
+  as spans; the hook dropped lines starting with "[Image: source:" or
+  "[Request interrupted".
+- A compaction summary and, in case an engine keeps them, messages starting
+  like Claude Code's notices are dropped from a person's turns by how they
+  start; the hook used the transcript's isMeta / isCompactSummary flags.
+- The mod refuses true/false where Jev's answer has a number (the hook took
+  them as 1/0), and `probabilities` that is no object, like [] or 0 (the
+  hook took an empty value as missing).
 """
 import io
 import json
@@ -77,6 +92,7 @@ PROMPTS = [
     "/effort high", "/spending-effort-with-jev:high go", "/Users/x/app.py crashes on start",
     "<task-notification><task-id>1</task-id></task-notification>", "<local-command-stdout>hi</local-command-stdout>",
     "<command-name>/model</command-name>", "why does <b>x</b> fail?", "fix the flaky test",
+    "/修复 bug", "/über test", "/ x",
 ]
 
 
@@ -92,7 +108,7 @@ def random_text(rng, size):
 
 
 def random_conversation(rng):
-    """One conversation as transcript entries (the hook) and rows (the mod)."""
+    """One conversation as transcript entries (the hook) and the rows Claude Code builds from them (the mod)."""
     entries, rows = [], []
     for i in range(rng.randint(0, 14)):
         role = rng.choice(["user", "assistant"])
@@ -100,10 +116,7 @@ def random_conversation(rng):
         kind = rng.random()
         size = rng.choice([5, 40, 400, 2000, 5000])
         if role == "assistant":
-            if kind < 0.15:
-                blocks = []  # only tool calls
-            else:
-                blocks = [random_text(rng, size) for _ in range(rng.randint(1, 2))]
+            blocks = [] if kind < 0.15 else [random_text(rng, size)]  # [] = only tool calls
             content = [{"type": "text", "text": b} for b in blocks]
             if kind < 0.4:
                 content.append({"type": "tool_use", "id": f"t{i}", "name": "Bash", "input": {}})
@@ -134,7 +147,7 @@ def random_conversation(rng):
             elif extra < 0.4:
                 blocks.insert(0, "[Request interrupted by user]")
             elif extra < 0.5:
-                blocks.append('<pasted_content id="p">pasted log line</pasted_content>')
+                blocks[-1] += '\n<pasted_content id="p">pasted log line</pasted_content>'
             elif extra < 0.55:
                 blocks = ["<command-name>/shuorenhua</command-name>\n<command-message>shuorenhua</command-message>"]
             elif extra < 0.6:
@@ -143,7 +156,9 @@ def random_conversation(rng):
         entry = {"uuid": f"u{i}", "parentUuid": f"u{i - 1}" if i else None, "type": role,
                  "message": {"role": role, "content": content}, **flags}
         entries.append(entry)
-        row = {"role": role, "text": "\n".join(blocks)}
+        if flags.get("isMeta"):
+            continue  # Claude Code leaves isMeta messages out of the rows
+        row = {"role": role, "text": "".join(blocks)}
         if tool_results:
             row["toolResults"] = [{"tool_use_id": f"t{i}", "text": "ok"}]
         rows.append(row)

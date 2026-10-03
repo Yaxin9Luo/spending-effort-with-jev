@@ -25,7 +25,7 @@ import {
   statusLine,
   verdict,
 } from './judge'
-import type { Lang, Turn } from './judge'
+import type { Lang, Turn, Verdict } from './judge'
 
 const pending = atom({ plugin: 'spending-effort-with-jev', key: 'pending' } as const, null as Pending | null)
 const override = atom({ plugin: 'spending-effort-with-jev', key: 'override' } as const, null as Override | null)
@@ -79,6 +79,14 @@ export const register: Register = (on, options) => {
     return yield* next({ ...e, effort: effort as Level })
   })
 
+  // Running /effort, whatever level it picks (even the one the session had),
+  // hands effort back to the person.
+  on('command.run', { command: 'effort' }, async ($, e, next) => {
+    const result = await next(e)
+    await release($, s)
+    return result
+  })
+
   // With ask_first off, a switch is offered above the prompt: 1 switches from
   // Claude's next step, 2 keeps the level and stops offering that direction.
   // The digits work only while Claude does: a bare digit typed in an empty
@@ -111,6 +119,7 @@ async function judge($: EngineInterface, text: string, s: Settings) {
   await update($, offer, () => null) // a new message replaces an unanswered offer
   const t = await $.clock.now()
   if (!s.key) {
+    await update($, pending, () => null)
     if (!(await read($, warnedNoKey))) {
       await update($, warnedNoKey, () => true)
       $.ui.toast(WORDS[s.l].noKey)
@@ -141,10 +150,9 @@ async function judge($: EngineInterface, text: string, s: Settings) {
     }
     await update($, pending, () => ({ answers, isGoAhead: goAhead, t }))
   } catch (err) {
-    await update($, pending, () => null)
     const status = err instanceof HttpStatus ? err.status : undefined
-    if (status === 401 || status === 403) $.ui.status(WORDS[s.l].badKey)
-    else if (!s.quiet) $.ui.status(WORDS[s.l].error)
+    const failure: Pending['failure'] = status === 401 || status === 403 ? 'badKey' : 'error'
+    await update($, pending, () => ({ answers: null, isGoAhead: false, failure, t }))
     // The kind of failure only: a parser's message can quote the response.
     await log($, s, { event: 'error', error: err instanceof Error ? err.name : 'unknown', status })
   }
@@ -195,18 +203,17 @@ async function within<T>($: EngineInterface, ms: number, work: Promise<T>): Prom
 /** The effort to send on this main-loop request; undefined leaves it alone. */
 async function levelFor($: EngineInterface, setting: unknown, s: Settings): Promise<string | undefined> {
   if (typeof setting !== 'string') {
-    // A model without effort, or a token budget: nothing to compare.
-    await update($, pending, () => null)
+    // A model without effort, or a token budget: nothing to compare or switch.
+    if ((await read($, pending)) !== null) {
+      await update($, pending, () => null)
+      $.ui.status(undefined)
+    }
     return undefined
   }
-  let ov = await read($, override)
-  if (ov !== null && ov.base !== setting) {
-    // The person changed the setting themselves: theirs wins.
-    await update($, override, () => null)
-    ov = null
-    $.ui.status(WORDS[s.l].released(setting))
-  }
-  const level = ov !== null ? ov.level : setting
+  const ov = await read($, override)
+  // The person changed the setting themselves: theirs wins.
+  if (ov !== null && ov.base !== setting) await release($, s, setting)
+  const level = ov !== null && ov.base === setting ? ov.level : setting
   if ((await read($, lastLevel)) !== level) {
     // A turned-down switch holds only while the level it was turned down on does.
     await update($, declined, () => ({}))
@@ -220,11 +227,34 @@ async function levelFor($: EngineInterface, setting: unknown, s: Settings): Prom
 
 async function decide($: EngineInterface, p: Pending, setting: string, level: string, s: Settings): Promise<string> {
   const w = WORDS[s.l]
-  if (p.answers === null) {
-    if (!s.quiet) $.ui.status(p.isGoAhead ? w.goAhead : w.unclear)
-    return level
+  let line: string
+  let chosen = level
+  let isNews = false // what quiet still shows: a switch, a hand-off warning, a rejected key
+  if (p.failure !== undefined) {
+    line = p.failure === 'badKey' ? w.badKey : w.error
+    isNews = p.failure === 'badKey'
+  } else if (p.answers === null) {
+    line = p.isGoAhead ? w.goAhead : w.unclear
+  } else {
+    ;[line, chosen, isNews] = await weigh($, p.answers, p.isGoAhead, setting, level, s)
   }
-  const v = verdict(p.answers, level)
+  const suffix = chosen !== setting ? ' ' + w.sending(chosen, setting) : ''
+  // A status line stays until replaced: one quiet doesn't show is cleared, not left stale.
+  $.ui.status(!s.quiet || isNews || suffix !== '' ? line + suffix : undefined)
+  return chosen
+}
+
+/** Jev's answer against the level: the line, the level to send, and whether it is news. */
+async function weigh(
+  $: EngineInterface,
+  answers: Answers,
+  isGoAhead: boolean,
+  setting: string,
+  level: string,
+  s: Settings,
+): Promise<[string, string, boolean]> {
+  const w = WORDS[s.l]
+  const v: Verdict = { ...verdict(answers, level), sized: isGoAhead }
   if (v.kind === 'ambiguous') $.ui.toast(w.ambiguous)
   let line = statusLine(s.l, v, level)
   let chosen = level
@@ -250,7 +280,7 @@ async function decide($: EngineInterface, p: Pending, setting: string, level: st
       if (answer === 'switch') {
         chosen = await switchTo($, target, setting)
         // The share that backed the switch, not a made-up certainty.
-        line = w.match({ kind: 'match', level: target, share: v.share }, chosen)
+        line = w.match({ ...v, kind: 'match', level: target }, chosen)
       } else if (answer === 'keep') {
         await update($, declined, d => ({ ...d, [dir]: level }))
         line = w.stayed(v, level)
@@ -260,13 +290,19 @@ async function decide($: EngineInterface, p: Pending, setting: string, level: st
       answer = 'offered'
     }
   }
-  const suffix = chosen !== setting ? ' ' + w.sending(chosen, setting) : ''
-  if (!s.quiet || isSwitch || v.kind === 'ambiguous' || suffix) $.ui.status(line + suffix)
   await log($, s, {
     event: 'decision', kind: v.kind, rec: v.level, share: round(v.share), setting, level, chosen,
-    answer, goAhead: p.isGoAhead, ask_first: s.askFirst,
+    answer, goAhead: isGoAhead, ask_first: s.askFirst,
   })
-  return chosen
+  return [line, chosen, isSwitch || v.kind === 'ambiguous']
+}
+
+/** The person took effort into their own hands: stop rewriting, drop any offer. */
+async function release($: EngineInterface, s: Settings, setting?: string) {
+  await update($, offer, () => null)
+  if ((await read($, override)) === null) return
+  await update($, override, () => null)
+  $.ui.status(WORDS[s.l].released(setting))
 }
 
 async function switchTo($: EngineInterface, level: string, setting: string): Promise<string> {
