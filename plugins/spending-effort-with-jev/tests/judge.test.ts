@@ -240,6 +240,20 @@ describe('context', () => {
     for (const [text, words] of joined) expect(writtenText({ role: 'user', text })).toBe(words)
   })
 
+  test('a huge paste full of unclosed tag look-alikes stays cheap', () => {
+    const chat = '<john_doe> hi there\n<jane-roe> hey <app-icon name="x"\n'.repeat(15_000) // ~0.7 MB, nothing closed
+    const started = Date.now()
+    expect(writtenText({ role: 'user', text: chat })).toBe(chat.trim())
+    expect(Date.now() - started).toBeLessThan(500)
+  })
+
+  test('nested and repeated blocks', () => {
+    expect(writtenText({ role: 'user', text: '<system-reminder>a <system-reminder>b</system-reminder>rest' })).toBe('rest')
+    expect(writtenText({ role: 'user', text: '<x-y>1</x-y>keep<x-y>2</x-y>' })).toBe('keep')
+    expect(writtenText({ role: 'user', text: 'keep <x-y attr="1"/> this' })).toBe('keep  this')
+    expect(writtenText({ role: 'user', text: '<pasted_content id="1"><b-c>x</b-c></pasted_content>' })).toBe('<pasted_content id="1"></pasted_content>')
+  })
+
   test("Claude's replies are its own words", () => {
     expect(writtenText({ role: 'assistant', text: 'Base directory for this skill: is a line skills start with.' })).toContain('Base directory')
     expect(writtenText({ role: 'assistant', text: 'Wrap it in <system-reminder>…</system-reminder> tags.' })).toContain('<system-reminder>')

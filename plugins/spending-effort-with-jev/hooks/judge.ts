@@ -133,24 +133,62 @@ const NOTICES = [
   'Your response above was',
 ]
 
-/**
- * A block Claude Code wraps in a tag of its own (<system-reminder>,
- * <command-name>, <local-command-stdout>, <ide_selection>, ...: names with a
- * hyphen or underscore), never <pasted_content>, which is the person's.
- * The rows join a message's text blocks with nothing between them, so a
- * block can sit anywhere on a line.
- */
-const WRAPPED = /<(?!pasted_content\b)([a-z][a-z0-9]*[-_][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>/g
-const WRAPPED_EMPTY = /<[a-z][a-z0-9]*[-_][\w-]*(?:\s[^>]*)?\/>/g
+/** A tag of Claude Code's own: a name with a hyphen or underscore. Attributes are short. */
+const TAG = /<(\/?)([a-z][a-z0-9]*[-_][\w-]*)(\s[^<>]{0,500}?)?(\/?)>/g
 /** Placeholders for an attachment and interrupt markers. */
-const MARKERS = /\[(?:Image:|Request interrupted by user)[^\]\n]*\]/g
+const MARKERS = /\[(?:Image:|Request interrupted by user)[^\]\n]{0,1000}\]/g
+
+/**
+ * Drop each block Claude Code wraps in a tag of its own (<system-reminder>,
+ * <command-name>, <local-command-stdout>, <ide_selection>, ...) and its empty
+ * tags, but never <pasted_content>, which is the person's. A block can sit
+ * anywhere on a line: the rows join a message's text blocks with nothing
+ * between them. One pass over the tags, so a huge paste full of unclosed
+ * look-alikes (a chat log's <john_doe>) costs no more than its length.
+ */
+function unwrap(text: string): string {
+  const tags = [...text.matchAll(TAG)].map(m => ({
+    name: m[2] ?? '',
+    isClose: m[1] === '/',
+    isEmpty: m[1] === '' && m[4] === '/',
+    isPlainClose: m[1] === '/' && m[3] === undefined && m[4] === '',
+    start: m.index,
+    end: m.index + m[0].length,
+  }))
+  const closes = new Map<string, Array<{ start: number; end: number }>>() // each name's plain closing tags, in order
+  for (const t of tags) {
+    if (!t.isPlainClose) continue
+    const list = closes.get(t.name)
+    if (list) list.push(t)
+    else closes.set(t.name, [t])
+  }
+  const passed = new Map<string, number>() // how many of a name's closing tags lie behind
+  let out = ''
+  let at = 0
+  for (const t of tags) {
+    if (t.start < at || t.isClose || t.name === 'pasted_content') continue
+    let end = t.end
+    if (!t.isEmpty) {
+      const list = closes.get(t.name) ?? []
+      let k = passed.get(t.name) ?? 0
+      while (k < list.length && (list[k]?.start ?? Infinity) < t.end) k += 1
+      passed.set(t.name, k)
+      const close = list[k]
+      if (close === undefined) continue // never closed: not a block of Claude Code's
+      end = close.end
+    }
+    out += text.slice(at, t.start)
+    at = end
+  }
+  return out + text.slice(at)
+}
 
 /** What a person or Claude actually wrote: no reminders, notices or markers. */
 export function writtenText(message: MessageLike): string {
   const text = String(message.text ?? '')
   if (message.role !== 'user') return text.trim() // Claude's own words; nothing is added to them
   if (message.toolResults && message.toolResults.length > 0) return ''
-  const words = text.replace(WRAPPED, '').replace(WRAPPED_EMPTY, '').replace(MARKERS, '').trim()
+  const words = unwrap(text).replace(MARKERS, '').trim()
   return NOTICES.some(notice => words.startsWith(notice)) ? '' : words
 }
 
@@ -161,19 +199,10 @@ export function writtenText(message: MessageLike): string {
  * or when `budget` tokens would be exceeded.
  */
 export function recentTurns(messages: readonly MessageLike[], budget = HISTORY_TOKENS, n = 20): Turn[] {
-  const merged: Turn[] = [] // newest first
-  for (const m of [...messages].reverse()) {
-    if (m.role !== 'user' && m.role !== 'assistant') continue
-    const text = writtenText(m)
-    if (!text) continue
-    const last = merged[merged.length - 1]
-    if (last && last.role === m.role) last.text = text + '\n' + last.text
-    else merged.push({ role: m.role, text })
-  }
   const turns: Turn[] = []
   let used = 0
   let seenReply = false
-  for (const m of merged) {
+  for (const m of mergedNewestFirst(messages)) {
     let text = m.text
     let isLatestReply = false
     if (m.role === 'assistant') {
@@ -187,6 +216,26 @@ export function recentTurns(messages: readonly MessageLike[], budget = HISTORY_T
     used += cost
   }
   return turns.reverse()
+}
+
+/**
+ * Turns newest first, each run of same-role messages merged. Lazy: a session's
+ * older history is never read once the budget is spent.
+ */
+function* mergedNewestFirst(messages: readonly MessageLike[]): Generator<Turn> {
+  let run: Turn | null = null
+  for (const m of [...messages].reverse()) {
+    if (m.role !== 'user' && m.role !== 'assistant') continue
+    const text = writtenText(m)
+    if (!text) continue
+    if (run !== null && run.role === m.role) {
+      run.text = text + '\n' + run.text
+      continue
+    }
+    if (run !== null) yield run
+    run = { role: m.role, text }
+  }
+  if (run !== null) yield run
 }
 
 /** The request body for Jev: the message, Claude's latest reply, older background. */
@@ -353,8 +402,7 @@ export const WORDS = {
     band: (o: { direction: 'up' | 'down'; level: string; from: string }) =>
       `✦ ${o.direction === 'up' ? 'needs' : 'enough:'} ${o.level} · now ${o.from}`,
     close: 'Close',
-    switched: (level: string, setting: string) =>
-      `effort: sending ${level} from the next step (your setting stays ${setting})`,
+    switched: (level: string) => `effort: sending ${level} from the next step (your setting is unchanged)`,
     released: (setting?: string) => (setting ? `○ effort: back on your setting, ${setting}` : '○ effort: back on your setting'),
   },
   zh: {
@@ -381,7 +429,7 @@ export const WORDS = {
     band: (o: { direction: 'up' | 'down'; level: string; from: string }) =>
       `✦ ${o.direction === 'up' ? '需要' : '够用：'} ${o.level} · 当前 ${o.from}`,
     close: '关闭',
-    switched: (level: string, setting: string) => `effort：从下一步起用 ${level}（你的设置仍是 ${setting}）`,
+    switched: (level: string) => `effort：从下一步起用 ${level}（你的设置不变）`,
     released: (setting?: string) => (setting ? `○ effort：已改回你的设置 ${setting}` : '○ effort：已改回你的设置'),
   },
 } as const

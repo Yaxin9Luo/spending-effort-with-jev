@@ -26,8 +26,13 @@ export type Pending = {
 /** The level this mod sends on the main loop's requests instead of the setting. */
 export type Override = {
   level: string
-  /** The session's own setting when the switch was chosen; a different one means the person changed it. */
-  base: string
+  /**
+   * The session's own setting the switch started from; a different one later
+   * means the person changed it. Null for a switch pressed in the band: the
+   * next request's setting fills it in (the person may have moved it since
+   * the offer).
+   */
+  base: string | null
 }
 
 /** Switches the person turned down, by direction: the level they chose to stay on. */

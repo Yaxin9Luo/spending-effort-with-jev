@@ -62,11 +62,16 @@ export const register: Register = (on, options) => {
     key: typeof options.typesafe_api_key === 'string' ? options.typesafe_api_key : '',
   }
 
+  // Typed messages in the order they came: a judgement that lands after a
+  // newer message's is dropped.
+  const order = { latest: 0 }
+
   on('prompt.submit', async ($, e, next) => {
     const text = e.text.trim()
-    if (isPersonOrigin(e.origin) && isTyped(text)) await judge($, text, s)
-    // A verdict is for its own message's turn, never a later prompt's.
-    else await update($, pending, () => null)
+    if (isPersonOrigin(e.origin) && isTyped(text)) await judge($, text, s, order)
+    // A verdict is for its own message's turn, never a later turn's. A prompt
+    // delivered into the running turn (turnId set) starts none.
+    else if (e.turnId === undefined) await update($, pending, () => null)
     return next(e)
   })
 
@@ -115,7 +120,9 @@ export const register: Register = (on, options) => {
 // ------------------------------------------------------------- judging
 
 /** Judge a typed message and leave the answer for the next model request. */
-async function judge($: EngineInterface, text: string, s: Settings) {
+async function judge($: EngineInterface, text: string, s: Settings, order: { latest: number }) {
+  const mine = (order.latest += 1)
+  const isStale = () => order.latest !== mine
   await update($, offer, () => null) // a new message replaces an unanswered offer
   const t = await $.clock.now()
   if (!s.key) {
@@ -132,6 +139,7 @@ async function judge($: EngineInterface, text: string, s: Settings) {
     const recent = recentTurns(rows)
     if (isGoAhead(text)) {
       const level = await sizeGoAhead($, rows, text)
+      if (isStale()) return
       await update($, pending, () => ({ answers: level ? certain(level) : null, isGoAhead: true, t }))
       await log($, s, { event: 'prompt', goAhead: 'exact', sized: level, message_chars: text.length })
       return
@@ -148,11 +156,12 @@ async function judge($: EngineInterface, text: string, s: Settings) {
     } else {
       await log($, s, jevRecord(answers, text, recent, {}))
     }
+    if (isStale()) return
     await update($, pending, () => ({ answers, isGoAhead: goAhead, t }))
   } catch (err) {
     const status = err instanceof HttpStatus ? err.status : undefined
     const failure: Pending['failure'] = status === 401 || status === 403 ? 'badKey' : 'error'
-    await update($, pending, () => ({ answers: null, isGoAhead: false, failure, t }))
+    if (!isStale()) await update($, pending, () => ({ answers: null, isGoAhead: false, failure, t }))
     // The kind of failure only: a parser's message can quote the response.
     await log($, s, { event: 'error', error: err instanceof Error ? err.name : 'unknown', status })
   }
@@ -210,7 +219,13 @@ async function levelFor($: EngineInterface, setting: unknown, s: Settings): Prom
     }
     return undefined
   }
-  const ov = await read($, override)
+  let ov = await read($, override)
+  if (ov !== null && ov.base === null) {
+    // A switch pressed in the band starts from the setting this request carries.
+    const started = ov.level === setting ? null : { level: ov.level, base: setting }
+    await update($, override, () => started)
+    ov = started
+  }
   // The person changed the setting themselves: theirs wins.
   if (ov !== null && ov.base !== setting) await release($, s, setting)
   const level = ov !== null && ov.base === setting ? ov.level : setting
@@ -312,8 +327,10 @@ async function switchTo($: EngineInterface, level: string, setting: string): Pro
 }
 
 async function acceptOffer($: EngineInterface, o: Offer, s: Settings) {
-  await switchTo($, o.level, o.setting)
-  $.ui.status(WORDS[s.l].switched(o.level, o.setting))
+  // Not from o.setting: the person may have moved the setting since the offer.
+  await update($, override, () => ({ level: o.level, base: null }))
+  await update($, offer, () => null)
+  $.ui.status(WORDS[s.l].switched(o.level))
   await log($, s, { event: 'offer', answer: 'switch', rec: o.level, from: o.from, setting: o.setting })
 }
 
@@ -353,18 +370,14 @@ async function log($: EngineInterface, s: Settings, record: Record<string, unkno
     if (!home) return
     const dir = `${home}/.claude/plugins/data/spending-effort-with-jev-spending-effort-with-jev`
     const path = `${dir}/decisions.jsonl`
-    let old = ''
-    try {
-      old = await $.fs.read(path)
-    } catch {
-      old = ''
-    }
+    // A log that exists but can't be read (over the 4 MiB read limit, say) is
+    // left alone: the read throws and nothing is written over it.
+    const old = (await $.fs.exists(path)) ? await $.fs.read(path) : ''
     if (old.length > LOG_MAX_CHARS) {
       await $.fs.write(`${dir}/decisions.1.jsonl`, old)
-      old = ''
     }
     const line = { t: await $.clock.now(), session: await $.session.id(), version: VERSION, mod: true, ...record }
-    await $.fs.write(path, old + JSON.stringify(line) + '\n')
+    await $.fs.write(path, (old.length > LOG_MAX_CHARS ? '' : old) + JSON.stringify(line) + '\n')
   } catch {
     // A log that can't be written never gets in the way.
   }

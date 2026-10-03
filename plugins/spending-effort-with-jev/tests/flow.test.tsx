@@ -5,6 +5,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 
 type World = {
+  /** Answers held back by a `{ deferred }` Jev entry, released in order. */
+  resolvers: Array<() => void>
   sent: Array<string | number | undefined>
   asked: string[]
   statuses: Array<string | undefined>
@@ -14,8 +16,11 @@ type World = {
 }
 
 type Setup = {
-  /** Jev's answer per call, in order; the last repeats. A number answers that HTTP status; `{ raw }` that body. */
+  /** Jev's answer per call, in order; the last repeats. A number answers that HTTP status; `{ raw }` that body; `{ deferred }` waits for `w.resolvers`. */
   jev?: Array<Record<string, unknown> | number | 'hang'>
+  /** Files that exist before the test, and ones that exist but can't be read. */
+  files?: Record<string, string>
+  unreadable?: string[]
   rows?: Array<{ role: string; text: string; toolUses?: unknown[] }>
   classify?: string
   /** Which option to pick in the effort dialog, by its position (0 switch, 1 keep), dismiss it, or type an answer. */
@@ -33,7 +38,8 @@ function jev(choice: string, conf = 0.95, amb = 0): Record<string, unknown> {
 
 /** Stand in for everything beneath the plugin: Jev, the conversation, the dialog, the model loop. */
 function world(on: any, setup: Setup): World {
-  const w: World = { sent: [], asked: [], statuses: [], toasts: [], jevCalls: [], files: {} }
+  const w: World = { resolvers: [], sent: [], asked: [], statuses: [], toasts: [], jevCalls: [], files: { ...setup.files } }
+  const unreadable = setup.unreadable ?? []
   const answers = setup.jev ?? [jev('high')]
   let call = 0
   mock.env(on, { HOME: setup.home ?? '/home/test' })
@@ -47,6 +53,10 @@ function world(on: any, setup: Setup): World {
     if (answer === 'hang') return new Promise(() => undefined)
     if (typeof answer === 'number') return { value: { status: answer, ok: false, headers: {}, text: '' } }
     if (answer && typeof answer.raw === 'string') return { value: { status: 200, ok: true, headers: {}, text: answer.raw } }
+    if (answer && 'deferred' in answer) {
+      const text = JSON.stringify({ answers: answer.deferred })
+      return new Promise(resolve => w.resolvers.push(() => resolve({ value: { status: 200, ok: true, headers: {}, text } })))
+    }
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ answers: answer }) } }
   })
   on('model.classify', () => ({ value: setup.classify }))
@@ -65,7 +75,9 @@ function world(on: any, setup: Setup): World {
     w.toasts.push(e.text)
     return { value: undefined }
   })
-  on('fs.read', ($: any, e: any) => (e.path in w.files ? { value: w.files[e.path] } : { deny: 'missing' }))
+  on('fs.exists', ($: any, e: any) => ({ value: e.path in w.files || unreadable.includes(e.path) }))
+  on('fs.read', ($: any, e: any) =>
+    unreadable.includes(e.path) ? { deny: 'over the 4194304-byte limit' } : e.path in w.files ? { value: w.files[e.path] } : { deny: 'missing' })
   on('fs.write', ($: any, e: any) => {
     w.files[e.path] = e.text
     return { value: undefined }
@@ -138,6 +150,28 @@ describe('judging', () => {
     await step($, 'low')
     expect(w.jevCalls.length).toBe(0)
     expect(w.sent).toEqual(['low'])
+  })
+
+  test("a notice delivered into the running turn keeps the verdict of a message typed into it", { options: ASK }, async ($, on) => {
+    const w = world(on, { jev: [jev('high', 0.97)], pick: 0 })
+    mock.clock(on)
+    await $.prompt.submit({ text: 'also fix the flaky integration test', ...TYPED, turnId: 'turn-running' })
+    await $.prompt.submit({ text: '<task-notification>done</task-notification>', wait: false, origin: { kind: 'task-notification' }, turnId: 'turn-running' })
+    await step($, 'low', 4)
+    expect(w.asked.length).toBe(1)
+    expect(w.sent).toEqual(['high'])
+  })
+
+  test('of two messages sent close together, the later one is judged', { options: ASK }, async ($, on) => {
+    const w = world(on, { jev: [{ deferred: jev('high', 0.97) }, jev('low', 0.97)] })
+    mock.clock(on)
+    const first = $.prompt.submit({ text: 'fix the flaky integration test', ...TYPED }) // Jev slow to answer
+    await $.prompt.submit({ text: 'never mind, what does this flag do?', ...TYPED })
+    w.resolvers.forEach(release => release())
+    await first
+    await step($, 'low')
+    expect(w.asked.length).toBe(0)
+    expect(w.statuses.at(-1)).toContain('✓ effort: low fits this')
   })
 
   test("a verdict never carries over to another prompt's turn", { options: ASK }, async ($, on) => {
@@ -296,6 +330,24 @@ describe('the band (ask_first off)', () => {
       expect(w.sent).toEqual(['low', 'low'])
     })
   }
+
+  test('a switch pressed after the setting moved elsewhere starts from the new setting', { options: PLAIN }, async ($, on) => {
+    const w = world(on, { jev: [jev('high', 0.97)] })
+    mock.clock(on)
+    await send($, 'fix the flaky integration test', 'low') // offered from low
+    const band = await $.ui.mount({
+      plugin: 'spending-effort-with-jev',
+      surface: 'desktop',
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: true, maxRows: 10, bodyColumns: 100 } as any,
+    })
+    await band.press({ key: 'switch' }) // after moving the desktop control to medium
+    await step($, 'medium', 1)
+    await step($, 'medium', 2)
+    expect(w.sent).toEqual(['low', 'high', 'high'])
+    await step($, 'low', 3) // and a later change of the setting still takes back control
+    expect(w.sent.at(-1)).toBe('low')
+  })
 
   test('the digits work only while Claude does, on both surfaces', { options: PLAIN }, async ($, on) => {
     world(on, { jev: [jev('high', 0.97)] })
@@ -492,6 +544,25 @@ describe('decision log', () => {
     expect(records[0].probabilities.high).toBe(0.97)
     expect(records[0].session).toBe('session-1')
     expect(records[1].chosen).toBe('high')
+  })
+
+  test("a log that can't be read is never written over", { options: { ...ASK, log_decisions: true } }, async ($, on) => {
+    const path = '/home/test/.claude/plugins/data/spending-effort-with-jev-spending-effort-with-jev/decisions.jsonl'
+    const w = world(on, { jev: [jev('high', 0.97)], pick: 0, unreadable: [path] })
+    mock.clock(on)
+    await send($, 'fix the bug', 'low')
+    expect(w.sent).toEqual(['high']) // the prompt went through
+    expect(Object.keys(w.files)).toEqual([]) // nothing written over it, nothing rotated
+  })
+
+  test('a long log is kept as decisions.1.jsonl', { options: { ...ASK, log_decisions: true } }, async ($, on) => {
+    const dir = '/home/test/.claude/plugins/data/spending-effort-with-jev-spending-effort-with-jev'
+    const old = '{"event":"prompt"}\n'.repeat(60_000) // past 1 MB
+    const w = world(on, { jev: [jev('high', 0.97)], pick: 0, files: { [`${dir}/decisions.jsonl`]: old } })
+    mock.clock(on)
+    await send($, 'fix the bug', 'low')
+    expect(w.files[`${dir}/decisions.1.jsonl`]).toBe(old)
+    expect(w.files[`${dir}/decisions.jsonl`]?.split('\n').filter(Boolean).length).toBe(2)
   })
 
   test('a failure is logged by its kind, never by what the response said', { options: { ...ASK, log_decisions: true } }, async ($, on) => {
