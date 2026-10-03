@@ -162,9 +162,9 @@ describe('ask_first', () => {
     expect(w.asked.length).toBe(1)
     expect(w.asked[0]).toContain('high')
     expect(w.sent).toEqual(['high'])
+    expect(w.statuses[w.statuses.length - 1]).toBe('✓ effort: high fits this (0.99) · now high · sending high (your setting: low)')
     await step($, 'low', 1)
     expect(w.sent).toEqual(['high', 'high'])
-    expect(w.statuses.some(s => s?.includes('sending high (your setting: low)'))).toBe(true)
   })
 
   test('the setting under the input box takes back control', { options: ASK }, async ($, on) => {
@@ -284,8 +284,10 @@ describe('the band (ask_first off)', () => {
           component: 'AbovePrompt',
           props: { hasSurvey: false, isWorking, maxRows: 10, bodyColumns: 100 } as any,
         })
-        const hotkeys = await Promise.all(['switch', 'keep', 'close'].map(async key => (await band.find({ key }))?.props.hotkey))
-        expect(hotkeys).toEqual(isWorking ? ['1', '2', '0'] : [undefined, undefined, undefined])
+        const buttons = await Promise.all(['switch', 'keep', 'close'].map(async key => (await band.find({ key }))?.props))
+        expect(buttons.map(b => b?.hotkey)).toEqual(isWorking ? ['1', '2', '0'] : [undefined, undefined, undefined])
+        // Idle buttons are drawn as buttons ("[ Switch to high ]"), not as "1: ..." lines.
+        expect(buttons.map(b => b?.plain)).toEqual(isWorking ? [true, true, true] : [undefined, undefined, undefined])
         await band.unmount()
       }
     }

@@ -88,16 +88,17 @@ export const register: Register = (on, options) => {
     const o = await read($, offer)
     if (o === null || e.props.hasSurvey) return next(e)
     const w = WORDS[s.l]
-    const digit = (d: string) => (e.props.isWorking ? { hotkey: d } : {})
+    // Working: "1: Switch to high". After the turn: "[ Switch to high ]", no digit.
+    const look = (d: string) => (e.props.isWorking ? { hotkey: d, plain: true as const } : {})
     const { Box, Text, Button } = $.ui.resolve(e)
     return (
       <Box flexDirection="row">
-        <Text>{w.band(o)} </Text>
-        <Button key="switch" {...digit('1')} plain label={w.switchTo(o.level)} onPress={() => acceptOffer($, o, s)} />
-        <Text> </Text>
-        <Button key="keep" {...digit('2')} plain label={w.keep(o.from)} onPress={() => declineOffer($, o, s)} />
-        <Text> </Text>
-        <Button key="close" {...digit('0')} plain role="dismiss" label={w.close} onPress={() => closeOffer($)} />
+        <Text>{w.band(o)}  </Text>
+        <Button key="switch" {...look('1')} label={w.switchTo(o.level)} onPress={() => acceptOffer($, o, s)} />
+        <Text>  </Text>
+        <Button key="keep" {...look('2')} label={w.keep(o.from)} onPress={() => declineOffer($, o, s)} />
+        <Text>  </Text>
+        <Button key="close" {...look('0')} role="dismiss" label={w.close} onPress={() => closeOffer($)} />
       </Box>
     )
   })
@@ -248,7 +249,8 @@ async function decide($: EngineInterface, p: Pending, setting: string, level: st
       }
       if (answer === 'switch') {
         chosen = await switchTo($, target, setting)
-        line = statusLine(s.l, verdict(certain(target), chosen), chosen)
+        // The share that backed the switch, not a made-up certainty.
+        line = w.match({ kind: 'match', level: target, share: v.share }, chosen)
       } else if (answer === 'keep') {
         await update($, declined, d => ({ ...d, [dir]: level }))
         line = w.stayed(v, level)
