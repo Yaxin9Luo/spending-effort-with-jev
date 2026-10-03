@@ -10,7 +10,8 @@ import unittest
 import unicodedata
 from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "plugins" / "spending-effort-with-jev" / "scripts"
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "python"  # the v0.2 hook: the eval's reference implementation
 sys.path.insert(0, str(SCRIPTS))
 import effort_advisor as ea  # noqa: E402
 import statusline  # noqa: E402
@@ -836,9 +837,11 @@ class DecisionLog(Base):
         self.assertEqual(p["message_chars"], len("SECRET-PROMPT-TEXT fix the bug"))
         self.assertEqual(self.records()[-1]["level"], "high")
 
-    def test_version_matches_the_manifest(self):
-        manifest = SCRIPTS.parent / ".claude-plugin" / "plugin.json"
-        self.assertEqual(ea.VERSION, json.loads(manifest.read_text())["version"])
+    def test_mod_version_matches_the_manifest(self):
+        plugin = ROOT / "plugins" / "spending-effort-with-jev"
+        manifest = json.loads((plugin / ".claude-plugin" / "plugin.json").read_text())
+        judge = (plugin / "hooks" / "judge.ts").read_text()
+        self.assertIn(f"export const VERSION = '{manifest['version']}'", judge)
 
     def test_log_rotates_when_large(self):
         os.environ["CLAUDE_PLUGIN_OPTION_LOG_DECISIONS"] = "true"

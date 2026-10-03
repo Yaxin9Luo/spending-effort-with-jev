@@ -6,7 +6,7 @@
     {
       "name": "spending-effort-with-jev",
       "source": "./plugins/spending-effort-with-jev",
-      "description": "Suggests when to switch /effort, judged per prompt by TypeSafe's Jev"
+      "description": "Judges each prompt's /effort level with TypeSafe's Jev and switches on your OK"
     }
   ]
 }

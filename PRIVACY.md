@@ -4,20 +4,25 @@ spending-effort-with-jev is a Claude Code plugin. It has no server of its own an
 
 ## What leaves your machine
 
-On each message you send in Claude Code, the plugin makes one HTTPS request to TypeSafe's Jev API (`api.typesafe.ai`), authenticated with the TypeSafe API key you entered. The request contains:
+On each message you type in Claude Code, the plugin makes one HTTPS request to TypeSafe's Jev API (`api.typesafe.ai`), authenticated with the TypeSafe API key you entered. The request contains:
 
 - the message you just typed, in full (a giant paste is cut to about 20k tokens, keeping its start and end);
-- Claude's latest reply (its last 3,000 characters) and older conversation from the current branch, about 1,500 tokens: your messages whole, Claude's older replies trimmed to their last 1,500 characters. Compaction summaries and system notices are not sent.
+- Claude's latest reply (its last 3,000 characters) and older conversation, about 1,500 tokens: your messages whole, Claude's older replies trimmed to their last 1,500 characters. Compaction summaries, Claude Code's own notices and skill instructions are not sent.
 
-Bare go-aheads ("ok", "continue"), slash commands and background-task notices are not sent. The request goes only to `api.typesafe.ai`: redirects are refused, so the key can't be forwarded elsewhere. Nothing else is sent: no files, no tool output, no environment variables, no other credentials.
+Slash commands, background-task notices, scheduled prompts, messages from other sessions and bare go-aheads ("ok", "continue") are not sent to Jev. Nothing else is sent: no files, no tool output, no environment variables, no other credentials.
+
+Claude Code makes the request for the plugin (a mod has no network of its own) and follows redirects. On a redirect to another host it drops the API key (checked on Claude Code 2.1.288), but the message would go there too; the v0.2 hook refused redirects, which a mod can't. TypeSafe's API isn't known to redirect.
+
+For a go-ahead (a bare "ok" or "continue", or a reply Jev can't place, like "OK, start phase 0"), the plugin also asks Claude Code's small model, on your own Claude account, to size the work: it gets the go-ahead and up to about 6,000 tokens of recent conversation, filtered the same way, with the effort rubric.
 
 How TypeSafe handles that data is covered by TypeSafe's [privacy policy](https://www.typesafe.ai/privacy-policy). It says TypeSafe does not train or fine-tune models on your inputs; it doesn't give a fixed retention period.
 
 ## What stays on your machine
 
-- Your API key is kept in Claude Code's secure storage (the plugin's `sensitive` option). The plugin reads it only from that option.
-- Small state files go in the plugin's data directory, `~/.claude/plugins/data/` (or `~/.claude/spending-effort-with-jev/` if Claude Code doesn't set one): the level and time of your last turn together with the last 3,000 characters of Claude's last reply (used as context if the transcript isn't readable yet), the last advice, which switches you've already seen, and how the session started. Files untouched for 14 days are deleted when a session starts.
-- Only if you turn on `log_decisions`: `decisions.jsonl` in the same folder gets one line per message and per turn, with Jev's probabilities, the plugin's decision, the level each turn ran on, the session id, and lengths (characters, number of context messages). It never contains the text of your messages or of Claude's replies. It grows to 5 MB, then the previous file is kept as `decisions.1.jsonl`. Delete either file any time.
+- Your API key is kept in Claude Code's secure storage (the plugin's `sensitive` option). The plugin reads it only from that option and sends it only to `api.typesafe.ai`.
+- No state files. While a session runs, Claude Code holds the plugin's state in memory: Jev's verdict until Claude's next request, the level you switched to, and the switches you turned down. It's gone when the session ends.
+- Only if you turn on `log_decisions`: `decisions.jsonl` in `~/.claude/plugins/data/spending-effort-with-jev-spending-effort-with-jev/` gets one line per message, decision and failure, with Jev's probabilities, the plugin's decision, your setting and the level sent, the session id, and lengths (characters, number of context messages). A failure is logged by its kind (a timeout, an HTTP status), never by what the response said. The log never contains the text of your messages or of Claude's replies. It grows to about 1 MB, then the previous file is kept as `decisions.1.jsonl`. Delete either file any time.
+- Files the v0.2 hook kept in that folder (`advice-`, `session-`, `stay-`, `tip-` and `turn-*.json`, and `bin/`) are no longer used and can be deleted.
 
 ## Turning it off
 

@@ -1,20 +1,11 @@
 # spending-effort-with-jev
 
-**Know which `/effort` level each message needs, the moment you send it.** A Claude Code plugin: every message you type is read by [TypeSafe](https://typesafe.ai)'s Jev model, which judges how much effort the task deserves. You get a one-line verdict before Claude starts working, so you can switch in time.
+**Know which `/effort` level each message needs, and switch with one key.** A Claude Code plugin: every message you type is read by [TypeSafe](https://typesafe.ai)'s Jev model, which judges how much effort the task deserves. Before Claude starts, you get a one-line verdict against the level Claude is about to run on, and when that level looks wrong, one key switches it.
 
-**Terminal:** on `low`, a quick question gets `○ low fits this`; a bug hunt gets `⬆ needs high`, and with `ask_first` on, Claude asks before starting. Orange: the plugin's line. Blue: Claude checking with you.
+- **With `ask_first` on**, a dialog asks before Claude starts. On `low` for a tricky bug: "This looks like high-effort work, and the session is on low. Switch to high for it?" On `max` for a quick question, it offers to drop to `low`.
+- **With it off**, nothing waits on you: a band above the prompt offers `1: Switch to high  2: Keep low  0: Close`, and a switch applies from Claude's next step.
 
-<p align="center"><img src="assets/terminal.png" width="820" alt="Claude Code in the terminal: the effort line under each message, and Claude asking whether to switch to high"></p>
-
-**Desktop app:** same flow. The line sits in the "Claude Code notice" (orange, click to expand); Claude's question (blue) points you to the effort control under the input box.
-
-<p align="center"><img src="assets/desktop.png" width="720" alt="Claude desktop app: Claude asks whether to switch to high effort before starting a bug fix"></p>
-
-**Downgrade, on a session's first message:** on `max`, "what is ppo" gets `low fits this`. The plugin hasn't seen your level yet, so Claude reads it (gray), finds `max`, and offers to drop to `low` before answering (blue).
-
-<p align="center"><img src="assets/desktop-downgrade.png" width="720" alt="Claude desktop app: on max effort, a quick question; Claude checks the level and offers to lower it to low"></p>
-
-It suggests; it never switches effort for you.
+It switches only when you say so. Needs Claude Code 2.1.287 or later: v0.3 is written as a mod (a TypeScript hooks module), which is what lets it see your live level and switch it.
 
 ## Install
 
@@ -27,13 +18,13 @@ Read its README first. Then:
 2. Run: claude plugin install spending-effort-with-jev@spending-effort-with-jev
 3. The plugin needs a TypeSafe API key (https://typesafe.ai); nothing else to install.
    Tell me to enter the key under /plugin (it goes to secure storage, not this chat).
-4. Ask me whether to turn on ask_first (Claude asks before starting when the effort
-   level looks wrong). If yes, run:
+4. Ask me whether to turn on ask_first (a dialog asks before Claude starts when the
+   effort level looks wrong). If yes, run:
    claude plugin install spending-effort-with-jev@spending-effort-with-jev --config ask_first=true
 5. Tell me to run /reload-plugins, then send a test message.
 ```
 
-**Or by hand** (Python 3 and a [TypeSafe](https://typesafe.ai) API key needed):
+**Or by hand** (Claude Code 2.1.287 or later and a [TypeSafe](https://typesafe.ai) API key needed):
 
 ```
 /plugin marketplace add Yaxin9Luo/spending-effort-with-jev
@@ -44,25 +35,30 @@ Paste your key when Claude Code asks; it's kept in secure storage and the plugin
 
 ## What the lines mean
 
+The line shows in Claude Code's status area as soon as Claude's first request is about to go out.
+
 | Line | Meaning |
 |---|---|
-| `⬆ effort: needs high (0.99) · was low → /effort high now, no stop needed` | Needs more effort than you have. The first time, it tells you how to switch (in the desktop app: "set high in the bar now"); if you stay put, later repeats are shorter. |
-| `⬇ effort: low is enough (0.95) · was max → /effort low` | You're spending more than this needs. |
-| `✓ effort: medium fits this (0.91) · last turn ran on medium` | The level your last turn ran on suits this message. If you've switched since, compare with that. |
-| `○ effort: high fits this (0.98)` | The recommendation, when there's nothing trustworthy to compare with yet (a session's first message, or right after you pressed Esc to switch). |
-| `○ effort: needs high (0.97) · Claude will check your level` | With `ask_first`: the plugin only knows the level your last turn ran on, and you may have switched since, so instead of pointing from it, Claude reads your live level (one quick `echo $CLAUDE_EFFORT`) and asks only if it's still off. Also on a session's first message, and for high or max work right after a question, a go-ahead or an Esc. |
+| `⬆ effort: needs high (0.99) · now low` | Needs more effort than the level this message would run on. With `ask_first`, the dialog asks; otherwise the band above the prompt offers the switch. |
+| `⬇ effort: low is enough (0.95) · now max` | You're spending more than this needs. Same offer, downward. |
+| `✓ effort: medium fits this (0.91) · now medium` | Your level suits this message. |
 | `○ effort: maybe high (0.55), not sure · keep your level` | Jev's vote is split between staying and switching, so no advice. |
 | `○ effort: nothing to judge here · keep your level` | A bare "ok" with no conversation before it. |
-| `○ effort: go-ahead · Claude will size the work before starting` | "continue", "OK, start phase 0" and the like. They start work that was planned earlier, often in files Jev never sees, so with `ask_first` on, Claude (which knows the work) reads your live level, sizes the work and asks only if the level is off. Without `ask_first` the line asks you to check. |
-| `⚠ effort: long run, fuzzy spec → have Claude interview you, then go max` | A long hands-off task with open questions. More effort won't fix a wrong reading of the task; a few questions first will. |
+| `○ effort: go-ahead · keep your level` | A go-ahead whose work couldn't be sized (see [How it works](#how-it-works)). |
+| `⬆ effort: high · you chose low` | You kept your level when this switch was offered; it isn't offered again from that level. |
+| `… · sending high (your setting: low)` | You switched here: Claude's requests go out on `high` while the setting under the input box stays `low`. |
+| `⚠ effort: long run, fuzzy spec → have Claude interview you, then go max` | A long hands-off task with open questions (also a toast). More effort won't fix a wrong reading of the task; a few questions first will. |
 
-The number is how much of Jev's whole answer backs the line: for a switch, the share on levels one or more steps away in that direction; for "fits", the share on your level (for xhigh, on high or max) plus "unclear", which gives no reason to switch. **"was low"** is the level your last completed turn ran on: hooks can't see a `/effort` switch until the next turn ends. (The optional status line below fixes that in the terminal.)
+**"now low"** is the level Claude's request is about to run on: your setting, or the level you switched to here. The mod reads it from the request itself, so a switch you made a moment ago is never missed.
 
-## Acting on a tip
+The number is how much of Jev's whole answer backs the line: for a switch, the share on levels one or more steps away in that direction; for "fits", the share on your level (for xhigh, on high or max) plus "unclear", which gives no reason to switch.
 
-- **To apply it to the current message:** just switch, without stopping Claude. A switch made while Claude works applies from its next step: Claude Code's docs say so for `/effort`, and the desktop app's transcripts show the same for the effort bar. Only the step already running stays on the old level. In the terminal that's `/effort high`; in the desktop app, the effort control in the bar under the input box. The line is worded for the client you're in.
-- **Or let Claude wait for you:** turn on `ask_first`. When a message looks like it needs a different level, higher or lower, Claude asks whether to switch before it does any work, and waits for your answer. On `max` for a quick question, it offers to drop to `low`; on `low` for a tricky bug, it offers `high`. It asks once per situation; if you choose to stay, it won't keep asking. On a session's first message, when the plugin hasn't seen your level yet, Claude reads it first (one quick `echo $CLAUDE_EFFORT`) and asks only if it's off. This is the easiest way in the desktop app.
-- In the terminal, `/effort <level>` also saves that level as your default for the model; to change just this session, open `/effort` and press `s`. In the desktop app, use the effort control under the input box. (Typing `/effort <level>` there also works but changes this session only, and the label under the input box may keep showing the old level.)
+## Switching
+
+- **A switch lasts for the session and applies from Claude's next step.** Claude Code has no way for a plugin to change your effort setting, so the mod rewrites the level on each request of the main conversation instead. The effort control under the input box keeps showing your setting; the status line says `sending high (your setting: low)` while the mod is rewriting. Subagents' requests are left alone.
+- **Your own setting wins.** Change the effort yourself (the control under the input box, or `/effort`) and the mod stops rewriting from the next request. A switch also ends when the session restarts.
+- **Keep** remembers the direction: from the same level, a switch the same way isn't offered again, even if Jev moves between high and max; the status line just notes it. Once your level changes, it can be offered again. Closing the band or dismissing the dialog changes nothing and remembers nothing.
+- With the band, the switch can't touch the request already running; it applies from Claude's next one. With `ask_first`, the dialog comes before the first request, so the whole turn runs on the level you pick.
 
 ## Options
 
@@ -72,24 +68,8 @@ Set them when you enable the plugin, or later under `/plugin`.
 |---|---|---|
 | `language` | `en` | `zh` for Chinese lines. |
 | `quiet` | off | Only show a line when a switch is suggested (or a hand-off needs a spec). |
-| `ask_first` | off | When a message needs a different level (up or down), Claude asks before it starts. |
-| `log_decisions` | off | Keep a local log of Jev's probabilities and each decision (numbers only, never message text) in the plugin's data folder, `decisions.jsonl`, to tune the thresholds on real use. See [PRIVACY.md](PRIVACY.md). |
-
-## Optional: status line (terminal)
-
-The status line is the one place Claude Code reports your *live* effort level, including right after `/effort`. With it, the bottom of the terminal shows e.g. `effort low · Jev: high ⬆`, then `effort high ✓` once you switch, and the notices compare against your real current level instead of the last turn.
-
-After installing, start one session (the plugin copies the script to a stable path), then add to `~/.claude/settings.json`:
-
-```json
-"statusLine": {
-  "type": "command",
-  "command": "python3 ~/.claude/plugins/data/spending-effort-with-jev-spending-effort-with-jev/bin/statusline.py",
-  "refreshInterval": 3
-}
-```
-
-`refreshInterval` matters: `/effort` doesn't trigger a status-line refresh by itself. If you already have a status line, call this script from yours and print both. Without the status line, the notices compare against the last completed turn.
+| `ask_first` | off | When a message needs a different level (up or down), a dialog asks before Claude starts. Off: the band above the prompt offers the switch without holding Claude up. |
+| `log_decisions` | off | Keep a local log of Jev's probabilities and each decision (numbers only, never message text) in `~/.claude/plugins/data/spending-effort-with-jev-spending-effort-with-jev/decisions.jsonl`, to tune the thresholds on real use. See [PRIVACY.md](PRIVACY.md). |
 
 ## Why effort matters
 
@@ -132,7 +112,7 @@ On the held-out half, with the session on `medium` (Opus 5.5's default) and the 
 - Averaged over the four starting levels, 11% of lines were "not sure".
 - The "fuzzy spec" warning caught 29 of 33 genuinely ambiguous hand-offs, and fired wrongly on 6 of 187 clear ones (all 220 messages; not a held-out figure).
 
-These use Jev answers recorded with the v0.2.5 wording of the levels; v0.2.6's added wording for non-coding work isn't reflected. The v0.2.5 rule on the same answers gave 95% and 63%.
+These use Jev answers recorded with the v0.2.5 wording of the levels; v0.2.6's added wording for non-coding work isn't reflected. The v0.2.5 rule on the same answers gave 95% and 63%. The evaluation ran on the v0.2 Python hook; the v0.3 mod keeps its rule, request and context, and [`tests/test_parity.py`](tests/test_parity.py) checks the two agree on 5,000 random answers and 400 random conversations.
 
 **On real conversations** (measured for v0.2.6 on 2026-09-27; the raw data wasn't kept, so this can't be re-run): 90 messages sampled from my own Claude Code sessions, each with its real context, labelled the same way (κ = 0.62: real messages are harder, for annotators too). Averaged over all four current levels:
 
@@ -150,27 +130,28 @@ This measures agreement with the post's rule of thumb as the annotators applied 
 
 ## How it works
 
-1. **You send a message.** Claude Code waits for the hook, which asks Jev (about 1 s, 6 s timeout) for a level (low / medium / high / max, or *unclear*) and whether it's an ambiguous hand-off. Jev sees your message, Claude's latest reply (what you're answering) and about 1,500 tokens of older conversation. Compaction summaries, system notices and interrupt markers are left out: nobody wrote them, and long unrelated context makes Jev less sure. The line appears before Claude starts.
-2. **The turn ends.** The hook records the effort level the turn ran on; that's what the next message is compared with. A typed `/effort` or the desktop effort bar reaches no hook, so right after a tip you acted on (Esc, switch, resend) or a question Claude asked, the plugin doesn't compare, rather than compare with a stale level.
-3. **The line uses Jev's whole distribution**, not just its top pick. A switch tip needs at least 70% of Jev's answer on levels one or more steps away in one direction; "fits" needs at least 70% on your level plus "unclear". So low 0.5 / unclear 0.3 while you're on low is a fit, not "not sure". xhigh counts as close to both high and max. When your level isn't known yet, the top level needs at least 70%.
-4. **Once you've stayed, it stops asking.** After a switch tip in one direction from your level, if you let a turn run without switching, later tips in that direction from the same level are brief and don't ask again, even if Jev moves between high and max. Answering Claude's question with "go ahead" or "ok" counts as staying.
-
-Claude Code doesn't let a session raise its own effort, so switching stays with you.
+1. **You send a message.** Before it reaches Claude, the mod asks Jev (about 1 s, 6 s timeout) for a level (low / medium / high / max, or *unclear*) and whether it's an ambiguous hand-off. Jev sees your message, Claude's latest reply (what you're answering) and about 1,500 tokens of older conversation. Compaction summaries, Claude Code's own notices and skill instructions, and interrupt markers are left out: nobody wrote them, and long unrelated context makes Jev less sure. Only what you type is judged: slash commands, background-task notices, scheduled prompts and messages from other sessions are not.
+2. **Go-aheads are sized from the conversation.** "continue", "ok" or "OK, start phase 0" carry no task Jev can see: the work they start was planned earlier. For those, Claude Code's small model reads the last ~6,000 tokens of conversation against the same rubric and picks the level.
+3. **Claude's first request decides.** The mod compares the verdict with the level that request is about to run on, your live level, then asks, offers the switch, or shows the fit.
+4. **The verdict uses Jev's whole distribution**, not just its top pick. A switch needs at least 70% of Jev's answer on levels one or more steps away in one direction; "fits" needs at least 70% on your level plus "unclear". So low 0.5 / unclear 0.3 while you're on low is a fit, not "not sure". xhigh counts as close to both high and max.
+5. **Once you've kept your level, it stops asking** in that direction from that level, as above.
 
 ## Privacy and cost
 
-- **Privacy:** each message you type goes to `api.typesafe.ai` in full (a giant paste is cut to about 20k tokens), with Claude's latest reply (its last 3,000 characters) and older conversation from the current branch (rewinds respected), about 1,500 tokens: your messages whole, Claude's older replies trimmed to their last 1,500 characters. Don't install the plugin if that's not OK for your work. Details in [PRIVACY.md](PRIVACY.md).
-- **Cost:** Jev is cheap. The 220-message evaluation above cost a few cents.
-- **Speed:** besides the Jev call, the hooks cost about 35 ms per message and per turn. Slash commands, background-task notices and bare go-aheads ("ok", "continue") skip Jev. If Jev doesn't answer in time (6 s per request, 12 s in all including waiting for a transcript), you get "no tip this time" and your message goes through.
+- **Privacy:** each message you type goes to `api.typesafe.ai` in full (a giant paste is cut to about 20k tokens), with Claude's latest reply (its last 3,000 characters) and older conversation, about 1,500 tokens: your messages whole, Claude's older replies trimmed to their last 1,500 characters. For a go-ahead, the last ~6,000 tokens of conversation go to Claude Code's small model instead, on your own Claude account. Don't install the plugin if that's not OK for your work. Details in [PRIVACY.md](PRIVACY.md).
+- **Cost:** Jev is cheap. The 220-message evaluation above cost a few cents. Sizing a go-ahead is one small-model call on your Claude plan.
+- **Speed:** your message waits for Jev (about 1 s). If Jev doesn't answer in 6 s, you get "no tip this time" and the message goes through; sizing a go-ahead waits up to 6 s more. Nothing else is waited on.
 
 ## Development
 
 ```
-python3 -m unittest discover tests        # offline tests
+claude plugin test plugins/spending-effort-with-jev       # the mod's tests, UI on terminal and desktop
+claude plugin validate plugins/spending-effort-with-jev
+python3 -m unittest discover tests        # the v0.2 hook's tests, and parity with the mod (needs bun)
 TYPESAFE_API_KEY=... python3 tests/eval_live.py   # dev only; the plugin itself reads the key from its config
 ```
 
-[`bench/`](bench) holds the task harness used for the runs above: headless `claude -p` in a clean environment, graded by hidden tests.
+The mod is [`plugins/spending-effort-with-jev/hooks/`](plugins/spending-effort-with-jev/hooks): `judge.ts` holds the judgement (what Jev is asked, the verdict, the wording), `register.tsx` the hooks. [`python/`](python) holds the v0.2 Python hook the evaluation ran on. [`bench/`](bench) holds the task harness used for the runs above: headless `claude -p` in a clean environment, graded by hidden tests.
 
 ## Status and roadmap
 

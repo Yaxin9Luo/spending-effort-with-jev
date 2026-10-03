@@ -1,7 +1,7 @@
 {
   "name": "spending-effort-with-jev",
-  "version": "0.2.7",
-  "description": "Shows which /effort level each message needs, the moment you send it, judged by TypeSafe's Jev. Based on 'Using Claude Code: Spending your effort'. Unofficial.",
+  "version": "0.3.0",
+  "description": "Shows which /effort level each message needs, the moment you send it, judged by TypeSafe's Jev, and switches on your OK. Based on 'Using Claude Code: Spending your effort'. Unofficial.",
   "author": {
     "name": "Yaxin Luo"
   },
@@ -11,6 +11,7 @@
   "supportUrl": "https://github.com/Yaxin9Luo/spending-effort-with-jev/issues",
   "privacyPolicyUrl": "https://github.com/Yaxin9Luo/spending-effort-with-jev/blob/main/PRIVACY.md",
   "license": "MIT",
+  "types": "./types/index.d.ts",
   "keywords": [
     "effort",
     "hooks",
@@ -40,7 +41,7 @@
     "ask_first": {
       "type": "boolean",
       "title": "Ask first",
-      "description": "When a message looks like it needs a different effort level (higher or lower), Claude asks whether to switch before it starts.",
+      "description": "When a message looks like it needs a different effort level (higher or lower), a dialog asks whether to switch before Claude starts. Off: a band above the prompt offers the switch without holding Claude up.",
       "default": false
     },
     "log_decisions": {

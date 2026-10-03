@@ -4,8 +4,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]
-                       / "plugins" / "spending-effort-with-jev" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 import effort_advisor as ea  # noqa: E402
 # Dev scripts: pass the developer's key to the plugin the way Claude Code would.
 import os  # noqa: E402

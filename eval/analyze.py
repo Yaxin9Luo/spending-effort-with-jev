@@ -18,7 +18,7 @@ from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "plugins" / "spending-effort-with-jev" / "scripts"))
+sys.path.insert(0, str(HERE.parent / "python"))
 import effort_advisor as ea  # noqa: E402
 # Dev scripts: pass the developer's key to the plugin the way Claude Code would.
 import os  # noqa: E402
