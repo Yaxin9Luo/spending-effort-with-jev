@@ -3,7 +3,7 @@
 // (v0.2.7) with the same thresholds and the same semantics.
 import type { Answers, Level } from '../types'
 
-export const VERSION = '0.3.0' // kept equal to plugin.json by a test
+export const VERSION = '0.3.1' // kept equal to plugin.json by a test
 export const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 export const TIMEOUT_MS = 6_000
 
@@ -481,6 +481,7 @@ export const WORDS = {
       : `now ${c.current}`,
     midBand: (o: { level: string; from: string }) => `✦ rest of this turn looks mechanical · ${o.level} for it? · now ${o.from}`,
     subagent: (what: string, level: string) => `effort: subagent "${what}" on ${level}`,
+    subagentsSized: (list: string) => `effort: subagents ${list}`,
     ledger: 'Ledger',
     jevCost: (usd: string) => `Jev API cost today ${usd}`,
     subagents: (levels: string) => `subagents ${levels}`,
@@ -531,6 +532,7 @@ export const WORDS = {
       : `当前 ${c.current}`,
     midBand: (o: { level: string; from: string }) => `✦ 这个回合剩下的像是机械活 · 改用 ${o.level}？· 当前 ${o.from}`,
     subagent: (what: string, level: string) => `effort：子代理“${what}”用 ${level}`,
+    subagentsSized: (list: string) => `effort：子代理 ${list}`,
     ledger: '账本',
     jevCost: (usd: string) => `Jev API 今日费用 ${usd}`,
     subagents: (levels: string) => `子代理 ${levels}`,

@@ -117,6 +117,10 @@ declare module 'claude-code' {
        * can come before the spawn returns its id, so it claims the oldest one.
        */
       spawning: Array<{ id: string; level: string; agentId: string | null }>
+      /** The subagents sized in the current main-loop turn, in order, for the band. */
+      turnSubagents: Array<{ what: string; level: string }>
+      /** Sized subagents not yet in a toast: spawns that come together share one. */
+      unannounced: Array<{ what: string; level: string }>
       /** The text the latest turn started with, by turn id, for the mid-turn check. */
       started: { turnId: string; text: string } | null
       /** Bumped when the ledger changes, so the pane redraws. */

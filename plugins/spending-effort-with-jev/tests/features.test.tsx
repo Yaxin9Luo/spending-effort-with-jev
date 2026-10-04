@@ -234,7 +234,7 @@ describe('thresholds tuned to your answers', () => {
 describe('subagents', () => {
   test('a lookup runs on low, a heavy task on high at most, the main loop untouched', { options: BASE }, async ($, on) => {
     const w = world(on, { jev: [jev('high', 0.97), jev('low', 0.97), jev('max', 0.97)] })
-    mock.clock(on)
+    const clock = mock.clock(on)
     turns += 1
     await $.prompt.submit({ text: 'fix the flaky integration test', ...TYPED })
     await step($, `turn-${turns}`, 'high', 0)
@@ -244,7 +244,26 @@ describe('subagents', () => {
     await step($, 'sub2', 'low', 0, 'agent-audit')
     await step($, `turn-${turns}`, 'high', 1)
     expect(w.sent.map(x => x.effort)).toEqual(['high', 'low', 'high', 'high'])
-    expect(w.toasts.some(t => t.includes('"find" on low'))).toBe(true)
+    // Spawned together, announced together: a host shows one toast at a time.
+    await clock.advance(1000)
+    expect(w.toasts.filter(t => t.includes('subagent'))).toEqual(['effort: subagents "find" low · "audit" high'])
+    // The band names this turn's subagents, at the width the desktop gives it.
+    const band = await $.ui.mount({ plugin: 'spending-effort-with-jev', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 10, bodyColumns: 80 } as any })
+    expect(JSON.stringify(await band.drawn())).toContain('subagents low high')
+    await band.unmount()
+    turns += 1 // the next turn starts with none
+    await $.prompt.submit({ text: 'and the docs?', ...TYPED })
+    await step($, `turn-${turns}`, 'high', 0)
+    const next = await $.ui.mount({ plugin: 'spending-effort-with-jev', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 10, bodyColumns: 80 } as any })
+    expect(JSON.stringify(await next.drawn())).not.toContain('subagents')
+  })
+
+  test('a lone subagent gets its own toast', { options: BASE }, async ($, on) => {
+    const w = world(on, { jev: [jev('low', 0.97)] })
+    const clock = mock.clock(on)
+    await $.agent.spawn({ tool_use_id: 't1', prompt: 'find x', description: 'find', subagentType: 'Explore', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: false, fork: false } as any)
+    await clock.advance(1000)
+    expect(w.toasts.filter(t => t.includes('subagent'))).toEqual(['effort: subagent "find" on low'])
   })
 
   test("a subagent's first request, sent before its spawn returns, is sized too", { options: BASE }, async ($, on) => {

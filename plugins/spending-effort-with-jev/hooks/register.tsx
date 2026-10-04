@@ -49,6 +49,8 @@ const warnedNoKey = atom({ plugin: 'spending-effort-with-jev', key: 'warnedNoKey
 const turn = atom({ plugin: 'spending-effort-with-jev', key: 'turn' } as const, null as TurnNote | null)
 const agentLevels = atom({ plugin: 'spending-effort-with-jev', key: 'agentLevels' } as const, {} as Record<string, string>)
 const spawning = atom({ plugin: 'spending-effort-with-jev', key: 'spawning' } as const, [] as Array<{ id: string; level: string; agentId: string | null }>)
+const turnSubagents = atom({ plugin: 'spending-effort-with-jev', key: 'turnSubagents' } as const, [] as Array<{ what: string; level: string }>)
+const unannounced = atom({ plugin: 'spending-effort-with-jev', key: 'unannounced' } as const, [] as Array<{ what: string; level: string }>)
 const started = atom({ plugin: 'spending-effort-with-jev', key: 'started' } as const, null as { turnId: string; text: string } | null)
 const ledgerTick = atom({ plugin: 'spending-effort-with-jev', key: 'ledgerTick' } as const, 0)
 
@@ -56,6 +58,8 @@ const LEDGER_PANE = 'effort-ledger'
 const GO_AHEAD_TOKENS = 6000 // a go-ahead's plan can sit a few messages back
 const SIZE_TIMEOUT_MS = 6000 // with Jev's 6 s, a message waits 12 s at most, as with the v0.2 hook
 const SPEC_TIMEOUT_MS = 8000
+/** Spawns within this long of the first share one toast: a host shows one toast at a time. */
+const GATHER_MS = 400
 const LOG_MAX_CHARS = 1_000_000
 
 type Settings = {
@@ -167,7 +171,8 @@ export const register: Register = (on, options) => {
     if (level !== null && result.agentId !== undefined) {
       const id = result.agentId
       await update($, agentLevels, m => ({ ...m, [id]: level }))
-      if (!s.quiet) $.ui.toast(WORDS[s.l].subagent(e.description, level))
+      await update($, turnSubagents, list => [...list, { what: e.description, level }])
+      if (!s.quiet) await announceLater($, s, { what: e.description, level })
       await log($, s, { event: 'subagent', type: e.subagentType, level })
     }
     return result
@@ -610,6 +615,7 @@ async function openTurn($: EngineInterface, turnId: string, index: number) {
   const begun = await read($, started)
   const task = begun !== null && begun.turnId === turnId ? begun.text : ''
   await update($, turn, () => ({ turnId, task, rec: null, level: null, steps: [], isChecked: false }))
+  await update($, turnSubagents, () => [])
 }
 
 async function noteStep($: EngineInterface, turnId: string, level: string | null, said: string, tools: string[]) {
@@ -677,12 +683,29 @@ async function bandFacts($: EngineInterface, s: Settings, columns: number): Prom
     const sum = summary([], await readJevDays($), await $.clock.now())
     if (sum.todayCalls > 0) facts.push(w.jevCost(usd(sum.todayUsd)))
   }
-  const subs = Object.values(await read($, agentLevels))
-  if (columns >= 100 && subs.length > 0) {
+  const subs = (await read($, turnSubagents)).map(x => x.level)
+  if (columns >= 70 && subs.length > 0) {
     const counts = LEVELS.map(lv => [lv, subs.filter(x => x === lv).length] as const).filter(([, n]) => n > 0)
     facts.push(w.subagents(counts.map(([lv, n]) => (n > 1 ? `${n}×${lv}` : lv)).join(' ')))
   }
   return facts
+}
+
+/** Toast a sized subagent, together with any sized in the next GATHER_MS. */
+async function announceLater($: EngineInterface, s: Settings, sized: { what: string; level: string }) {
+  const isFirst = (await read($, unannounced)).length === 0
+  await update($, unannounced, list => [...list, sized])
+  if (isFirst) $.clock.after(GATHER_MS, () => void announce($, s))
+}
+
+async function announce($: EngineInterface, s: Settings) {
+  const list = await read($, unannounced)
+  await update($, unannounced, () => [])
+  const w = WORDS[s.l]
+  const first = list[0]
+  if (first === undefined) return
+  if (list.length === 1) $.ui.toast(w.subagent(first.what, first.level))
+  else $.ui.toast(w.subagentsSized(list.map(x => `"${x.what}" ${x.level}`).join(' · ')))
 }
 
 /** A subagent's first request before its spawn returned: it takes the oldest sized spawn not yet taken. */
