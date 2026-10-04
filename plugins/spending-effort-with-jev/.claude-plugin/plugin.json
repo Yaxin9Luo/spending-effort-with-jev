@@ -49,6 +49,30 @@
       "title": "Log decisions",
       "description": "Keep a local log of Jev's probabilities and the plugin's decisions (numbers only, never message text) in the plugin's data folder, for tuning thresholds.",
       "default": false
+    },
+    "self_tune": {
+      "type": "boolean",
+      "title": "Tune to my answers",
+      "description": "Once you've answered enough offers in a direction, make switches you keep taking come a little sooner and ones you keep turning down a little later (between 0.6 and 0.85).",
+      "default": true
+    },
+    "subagents": {
+      "type": "boolean",
+      "title": "Size subagents",
+      "description": "Judge each subagent's task with Jev and run it on a fitting level (never above high), leaving the main conversation on yours.",
+      "default": true
+    },
+    "interview": {
+      "type": "boolean",
+      "title": "Interview before long runs",
+      "description": "When a long hands-off task leaves important requirements open, ask you two or three questions first and give Claude the answers.",
+      "default": true
+    },
+    "midturn": {
+      "type": "boolean",
+      "title": "Mid-turn downgrade hint",
+      "description": "In a long high or max turn, check once whether the rest is mechanical, and if so offer low for the rest of that turn.",
+      "default": true
     }
   }
 }

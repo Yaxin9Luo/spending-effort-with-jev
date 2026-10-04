@@ -62,6 +62,15 @@ The number is how much of Jev's whole answer backs the line: for a switch, the s
 - **Keep** remembers the direction: from the same level, a switch the same way isn't offered again, even if Jev moves between high and max; the status line just notes it. Once your level changes, it can be offered again. Closing the band or dismissing the dialog changes nothing and remembers nothing.
 - With the band, the switch can't touch the request already running; it applies from Claude's next one. With `ask_first`, the dialog comes before the first request, so the whole turn runs on the level you pick.
 
+## Around the switch
+
+- **The band shows more than the verdict.** Beside the gauge and Jev's line: what this turn (or the last one) cost, today's total, how full the context is, the 5-hour limit, and the levels subagents got, as room allows.
+- **Ledger.** Every main-conversation turn is recorded with the level it ran on, Jev's level and its cost. The band's Ledger button (or `/effort-ledger`) opens a pane: cost per level, today and the last 7 days, and what following Jev would have changed, priced at your own averages per level.
+- **Subagents get their own level.** When Claude starts a subagent, Jev sizes its task: a lookup runs on low, a careful check on high (never max, which is yours to choose). The main conversation stays on your level.
+- **A mid-turn hint.** Once in a long high or max turn, the mod asks Jev whether what's left is mechanical (applying a decided change, running tests, writing the commit). If so, the band offers low for the rest of that turn only.
+- **An interview before long fuzzy runs.** When a message hands Claude a long run with important things left open, two or three questions come first (drafted by the small model from your message); your answers go to Claude with it. "Up to Claude" skips a question, "Start now" the rest.
+- **Thresholds that learn from you.** After ten answers in one direction, switches you keep taking need a little less of Jev's vote and ones you keep turning down a little more (between 0.6 and 0.85, each direction on its own).
+
 ## Options
 
 Set them when you enable the plugin, or later under `/plugin`.
@@ -71,6 +80,10 @@ Set them when you enable the plugin, or later under `/plugin`.
 | `language` | `en` | `zh` for Chinese lines. |
 | `quiet` | off | Only show a line when a switch is suggested or in effect, a hand-off needs a spec, or the key is rejected. |
 | `ask_first` | off | When a message needs a different level (up or down), a dialog asks before Claude starts. Off: the band above the prompt offers the switch without holding Claude up. |
+| `subagents` | on | Size each subagent's task with Jev and run it on that level (at most high). |
+| `midturn` | on | Offer low for the rest of a long high or max turn when what's left is mechanical. |
+| `interview` | on | Ask two or three questions before a long run with open requirements. |
+| `self_tune` | on | Move the switch thresholds with your answers, between 0.6 and 0.85. |
 | `log_decisions` | off | Keep a local log of Jev's probabilities and each decision (numbers only, never message text) in `~/.claude/plugins/data/spending-effort-with-jev-spending-effort-with-jev/decisions.jsonl`, to tune the thresholds on real use. See [PRIVACY.md](PRIVACY.md). |
 
 ## Why effort matters

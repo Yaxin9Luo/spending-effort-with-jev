@@ -2,32 +2,42 @@
 // before the model request that would run it, compare with the live effort
 // and let the person switch from the UI. The switch rewrites the effort of
 // this session's main-loop requests; the setting under the input box is
-// untouched, and changing it there takes back control.
+// untouched, and changing it there takes back control. Around that: a ledger
+// of what each level cost, subagents sized by their own task, a mid-turn
+// downgrade hint, a spec interview before long fuzzy runs, and thresholds
+// tuned to the person's own answers.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionMessage } from 'claude-code'
 
-import type { Answers, Card, Declined, Level, Offer, Override, Pending } from '../types'
+import type { Answers, Card, Declined, LedgerTurn, Level, Offer, Override, Pending, Tally, TurnNote } from '../types'
 import {
+  AMBIGUITY_MIN,
   JEV_URL,
   LEVELS,
+  MID_TURN_MIN,
+  MID_TURN_STEP,
   TIMEOUT_MS,
   VERSION,
   WORDS,
   certain,
+  checked,
   gaugeSvg,
   gaugeText,
-  checked,
   goAheadText,
   isGoAhead,
   isPersonOrigin,
   isTyped,
   jevBody,
   lang,
+  midTurnBody,
   recentTurns,
   statusLine,
+  subagentLevel,
   verdict,
 } from './judge'
 import type { Lang, Turn, Verdict } from './judge'
+import { added, ledgerSvg, summary, tokens, usd } from './ledger'
+import { switchMins, tallied } from './tuning'
 
 const pending = atom({ plugin: 'spending-effort-with-jev', key: 'pending' } as const, null as Pending | null)
 const override = atom({ plugin: 'spending-effort-with-jev', key: 'override' } as const, null as Override | null)
@@ -36,12 +46,29 @@ const lastLevel = atom({ plugin: 'spending-effort-with-jev', key: 'lastLevel' } 
 const offer = atom({ plugin: 'spending-effort-with-jev', key: 'offer' } as const, null as Offer | null)
 const card = atom({ plugin: 'spending-effort-with-jev', key: 'card' } as const, null as Card | null)
 const warnedNoKey = atom({ plugin: 'spending-effort-with-jev', key: 'warnedNoKey' } as const, false)
+const turn = atom({ plugin: 'spending-effort-with-jev', key: 'turn' } as const, null as TurnNote | null)
+const agentLevels = atom({ plugin: 'spending-effort-with-jev', key: 'agentLevels' } as const, {} as Record<string, string>)
+const spawning = atom({ plugin: 'spending-effort-with-jev', key: 'spawning' } as const, [] as Array<{ id: string; level: string; agentId: string | null }>)
+const started = atom({ plugin: 'spending-effort-with-jev', key: 'started' } as const, null as { turnId: string; text: string } | null)
+const ledgerTick = atom({ plugin: 'spending-effort-with-jev', key: 'ledgerTick' } as const, 0)
 
+const LEDGER_PANE = 'effort-ledger'
 const GO_AHEAD_TOKENS = 6000 // a go-ahead's plan can sit a few messages back
 const SIZE_TIMEOUT_MS = 6000 // with Jev's 6 s, a message waits 12 s at most, as with the v0.2 hook
+const SPEC_TIMEOUT_MS = 8000
 const LOG_MAX_CHARS = 1_000_000
 
-type Settings = { l: Lang; quiet: boolean; askFirst: boolean; logOn: boolean; key: string }
+type Settings = {
+  l: Lang
+  quiet: boolean
+  askFirst: boolean
+  logOn: boolean
+  key: string
+  selfTune: boolean
+  subagents: boolean
+  interview: boolean
+  midturn: boolean
+}
 
 class HttpStatus extends Error {
   name = 'HttpStatus'
@@ -63,28 +90,87 @@ export const register: Register = (on, options) => {
     askFirst: options.ask_first === true,
     logOn: options.log_decisions === true,
     key: typeof options.typesafe_api_key === 'string' ? options.typesafe_api_key : '',
+    selfTune: options.self_tune !== false,
+    subagents: options.subagents !== false,
+    interview: options.interview !== false,
+    midturn: options.midturn !== false,
   }
 
   // Typed messages in the order they came: a judgement that lands after a
   // newer message's is dropped.
   const order = { latest: 0 }
 
+  on('session.start', async ($, e, next) => {
+    const result = await next(e)
+    try {
+      await $.command.register({ name: LEDGER_PANE, description: WORDS[s.l].ledgerTitle })
+    } catch {
+      // No command, but the band's button still opens the ledger.
+    }
+    return result
+  })
+
+  on('command.run', { command: LEDGER_PANE }, async $ => {
+    await openLedger($, s)
+    return { text: WORDS[s.l].ledgerOpened }
+  })
+
   on('prompt.submit', async ($, e, next) => {
     const text = e.text.trim()
-    if (isPersonOrigin(e.origin) && isTyped(text)) await judge($, text, s, order)
+    if (isPersonOrigin(e.origin) && isTyped(text)) {
+      const spec = await judge($, text, s, order)
+      if (spec.length > 0) return next({ ...e, context: [...(e.context ?? []), ...spec] })
+    }
     // A verdict is for its own message's turn, never a later turn's. A prompt
     // delivered into the running turn (turnId set) starts none.
     else if (e.turnId === undefined) await update($, pending, () => null)
     return next(e)
   })
 
-  // The main loop's requests: the first one after a judged message decides;
-  // every one carries the level the person chose here, if any.
+  on('turn.start', async ($, e, next) => {
+    await update($, started, () => ({ turnId: e.turnId, text: e.text }))
+    return next(e)
+  })
+
+  // Every model request. The main loop's first one after a judged message
+  // decides; each carries the level the person chose here, if any. A
+  // subagent's carries the level its task was sized at.
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId !== undefined) return yield* next(e)
+    if (e.agentId !== undefined) {
+      const sized = (await read($, agentLevels))[e.agentId] ?? (await claimSpawn($, e.agentId))
+      if (sized === undefined || typeof e.effort !== 'string' || sized === e.effort) return yield* next(e)
+      return yield* next({ ...e, effort: sized as Level })
+    }
+    await openTurn($, e.turnId, e.index)
     const effort = await levelFor($, e.effort, s)
-    if (effort === undefined || effort === e.effort) return yield* next(e)
-    return yield* next({ ...e, effort: effort as Level })
+    const sent = effort ?? (typeof e.effort === 'string' ? e.effort : null)
+    if (sent !== null) await midTurnCheck($, e.turnId, e.index, sent, typeof e.effort === 'string' ? e.effort : sent, s)
+    const result = effort === undefined || effort === e.effort ? yield* next(e) : yield* next({ ...e, effort: effort as Level })
+    await noteStep($, e.turnId, sent, result.answer, result.toolUses.map(t => t.name))
+    return result
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId === undefined) await closeTurn($, e.turnId, e.usage?.output_tokens ?? 0)
+    return result
+  })
+
+  // A subagent runs on a level fitting its own task: Explore-style lookups
+  // low, verification high (never max: that's for the person to choose).
+  on('agent.spawn', async ($, e, next) => {
+    if (!s.subagents || !s.key || e.fork) return next(e)
+    const level = await sizeTask($, e.prompt, s)
+    if (level !== null) await update($, spawning, list => [...list, { id: e.tool_use_id, level, agentId: null }])
+    const result = await next(e)
+    await update($, spawning, list => list.filter(x => x.id !== e.tool_use_id))
+    if (level !== null && result.agentId !== undefined) {
+      const id = result.agentId
+      await update($, agentLevels, m => ({ ...m, [id]: level }))
+      if (!s.quiet) $.ui.toast(WORDS[s.l].subagent(e.description, level))
+      await log($, s, { event: 'subagent', type: e.subagentType, level })
+    }
+    return result
   })
 
   // Running /effort, whatever level it picks (even the one the session had),
@@ -123,15 +209,45 @@ export const register: Register = (on, options) => {
           ))}
         </Text>
       )
+    const share = c?.share !== undefined && !o ? ` (${c.share.toFixed(2)})` : ''
+    const words = (o ? (o.turnId !== undefined ? w.midBand(o) : w.band(o)) : c ? w.cardLine(c) : '') + share
+    const facts = await bandFacts($, s, e.props.bodyColumns)
     return (
       <Box flexDirection="row">
         {gauge}
-        <Text>  {o ? w.band(o) : c ? w.cardLine(c) : ''}  </Text>
+        <Text>  {words}  </Text>
+        {facts.length > 0 ? <Text dimColor>│ {facts.join(' · ')}  </Text> : null}
         {o ? <Button key="switch" {...look('1')} label={w.switchTo(o.level)} onPress={() => acceptOffer($, o, s)} /> : null}
         {o ? <Text>  </Text> : null}
         {o ? <Button key="keep" {...look('2')} label={w.keep(o.from)} onPress={() => declineOffer($, o, s)} /> : null}
         {o ? <Text>  </Text> : null}
+        {o ? null : <Button key="ledger" label={w.ledger} onPress={() => openLedger($, s)} />}
+        {o ? null : <Text>  </Text>}
         <Button key="close" {...(o ? look('0') : {})} role="dismiss" label={w.close} onPress={() => closeOffer($)} />
+      </Box>
+    )
+  })
+
+  // The ledger: what each level cost, and what following Jev would have changed.
+  on('ui.render', { component: 'Pane', requestId: LEDGER_PANE }, async ($, e) => {
+    await read($, ledgerTick) // redraw when a turn is added
+    const w = WORDS[s.l]
+    const ui = $.ui.resolve(e)
+    const { Box, Text } = ui
+    const sum = summary(await readLedger($), await $.clock.now())
+    if (sum.rows.length === 0) return <Text dimColor>{w.ledgerEmpty}</Text>
+    return (
+      <Box flexDirection="column">
+        <Text bold color="#D97757">
+          {w.ledgerHead(usd(sum.todayUsd), usd(sum.weekUsd))}
+        </Text>
+        {e.surface !== 'terminal' && 'Svg' in ui && ui.Svg ? (
+          <ui.Svg key="chart" source={ledgerSvg(sum.rows)} alt="cost per effort level" isInteractive />
+        ) : null}
+        {sum.rows.map(r => (
+          <Text>{w.ledgerRow(r.level, r.turns, usd(r.usd), usd(r.turns > 0 ? r.usd / r.turns : 0), tokens(r.out))}</Text>
+        ))}
+        <Text dimColor>{w.ledgerJev(sum.disagreed, sum.priced, usd(sum.delta))}</Text>
       </Box>
     )
   })
@@ -139,8 +255,12 @@ export const register: Register = (on, options) => {
 
 // ------------------------------------------------------------- judging
 
-/** Judge a typed message and leave the answer for the next model request. */
-async function judge($: EngineInterface, text: string, s: Settings, order: { latest: number }) {
+/**
+ * Judge a typed message and leave the answer for the next model request.
+ * Returns what to attach to the prompt: the person's answers to a spec
+ * interview, when the message hands over a long run with open questions.
+ */
+async function judge($: EngineInterface, text: string, s: Settings, order: { latest: number }): Promise<string[]> {
   const mine = (order.latest += 1)
   const isStale = () => order.latest !== mine
   await update($, offer, () => null) // a new message replaces an unanswered offer
@@ -151,7 +271,7 @@ async function judge($: EngineInterface, text: string, s: Settings, order: { lat
       await update($, warnedNoKey, () => true)
       $.ui.toast(WORDS[s.l].noKey)
     }
-    return
+    return []
   }
   try {
     const messages = await $.session.messages()
@@ -159,12 +279,12 @@ async function judge($: EngineInterface, text: string, s: Settings, order: { lat
     const recent = recentTurns(rows)
     if (isGoAhead(text)) {
       const level = await sizeGoAhead($, rows, text)
-      if (isStale()) return
+      if (isStale()) return []
       await update($, pending, () => ({ answers: level ? certain(level) : null, isGoAhead: true, t }))
       await log($, s, { event: 'prompt', goAhead: 'exact', sized: level, message_chars: text.length })
-      return
+      return []
     }
-    let answers: Answers | null = await askJev($, s.key, text, recent)
+    let answers: Answers | null = await askJev($, s.key, jevBody(text, recent))
     let goAhead = false
     if (verdict(answers, null).kind === 'unclear' && recent.length > 0) {
       // A go-ahead in words Jev can't place ("OK, commit the spec and start
@@ -176,29 +296,40 @@ async function judge($: EngineInterface, text: string, s: Settings, order: { lat
     } else {
       await log($, s, jevRecord(answers, text, recent, {}))
     }
-    if (isStale()) return
+    if (isStale()) return []
     await update($, pending, () => ({ answers, isGoAhead: goAhead, t }))
+    if (s.interview && answers !== null && answers.handoff_ambiguous.noul >= AMBIGUITY_MIN) {
+      return await interview($, text, recent, s)
+    }
+    return []
   } catch (err) {
     const status = err instanceof HttpStatus ? err.status : undefined
     const failure: Pending['failure'] = status === 401 || status === 403 ? 'badKey' : 'error'
     if (!isStale()) await update($, pending, () => ({ answers: null, isGoAhead: false, failure, t }))
     // The kind of failure only: a parser's message can quote the response.
     await log($, s, { event: 'error', error: err instanceof Error ? err.name : 'unknown', status })
+    return []
   }
 }
 
-async function askJev($: EngineInterface, key: string, text: string, recent: readonly Turn[]): Promise<Answers> {
+async function askJev($: EngineInterface, key: string, body: unknown): Promise<Answers> {
+  const response = await jevCall($, key, body)
+  return checked(response.answers)
+}
+
+/** One request to Jev; its JSON body, or a throw. */
+async function jevCall($: EngineInterface, key: string, body: unknown): Promise<{ answers?: unknown }> {
   const response = await within(
     $,
     TIMEOUT_MS,
     $.http.fetch(JEV_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(jevBody(text, recent)),
+      body: JSON.stringify(body),
     }),
   )
   if (!response.ok) throw new HttpStatus(response.status)
-  return checked(JSON.parse(response.text).answers)
+  return JSON.parse(response.text) as { answers?: unknown }
 }
 
 /** A go-ahead's work is in the conversation, not in its words: a small model sizes it. */
@@ -210,6 +341,66 @@ async function sizeGoAhead($: EngineInterface, rows: readonly SessionMessage[], 
     return label !== undefined && (LEVELS as readonly string[]).includes(label) ? (label as Level) : null
   } catch {
     return null
+  }
+}
+
+/** A subagent's task, sized by Jev on its own words; null when Jev isn't sure. */
+async function sizeTask($: EngineInterface, task: string, s: Settings): Promise<Level | null> {
+  try {
+    return subagentLevel(await askJev($, s.key, jevBody(task, [])))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Two or three questions about what the long run leaves open, drafted by the
+ * small model from the message (standard ones if it can't), asked one by one.
+ * The answers go to Claude with the prompt; they are never logged.
+ */
+async function interview($: EngineInterface, text: string, recent: readonly Turn[], s: Settings): Promise<string[]> {
+  const w = WORDS[s.l]
+  const questions = await draftQuestions($, text, recent, s)
+  const answered: string[] = []
+  for (const q of questions) {
+    let a: string
+    try {
+      a = await $.ui.ask(q, { options: [w.leaveIt, w.skipRest], header: w.specHeader })
+    } catch {
+      break // dismissed, or nobody to ask (-p)
+    }
+    if (a === w.skipRest) break
+    if (a !== w.leaveIt && a.trim() !== '') answered.push(`Q: ${q}\nA: ${a.trim()}`)
+  }
+  await log($, s, { event: 'interview', asked: questions.length, answered: answered.length })
+  return answered.length > 0 ? [`${w.specIntro}\n\n${answered.join('\n\n')}`] : []
+}
+
+async function draftQuestions($: EngineInterface, text: string, recent: readonly Turn[], s: Settings): Promise<string[]> {
+  const fallback = [...WORDS[s.l].specFallback]
+  try {
+    const convo = recent.map(t => `[${t.role}] ${t.text.slice(-800)}`).join('\n')
+    const result = await within(
+      $,
+      SPEC_TIMEOUT_MS,
+      $.model.complete({
+        model: 'haiku',
+        maxTokens: 300,
+        system:
+          'You help a person hand a long autonomous task to a coding agent. Write the 3 questions whose answers ' +
+          'would most change how the agent does the task: success criteria, scope, constraints. One per line, ' +
+          'no numbering, each under 20 words, in the language of the request.',
+        prompt: `Recent conversation:\n${convo}\n\nThe request:\n${text.slice(0, 4000)}`,
+      }),
+    )
+    if (!result.isAnswered) return fallback
+    const lines = result.text
+      .split('\n')
+      .map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+      .filter(l => l.length > 8 && l.endsWith('?'))
+    return lines.length >= 2 ? lines.slice(0, 3) : fallback
+  } catch {
+    return fallback
   }
 }
 
@@ -242,14 +433,14 @@ async function levelFor($: EngineInterface, setting: unknown, s: Settings): Prom
   let ov = await read($, override)
   if (ov !== null && ov.base === null) {
     // A switch pressed in the band starts from the setting this request carries.
-    const started = ov.level === setting ? null : { level: ov.level, base: setting }
-    await update($, override, () => started)
-    ov = started
+    const start: Override | null = ov.level === setting ? null : { ...ov, base: setting }
+    await update($, override, () => start)
+    ov = start
   }
   // The person changed the setting themselves: theirs wins.
   if (ov !== null && ov.base !== setting) await release($, s, setting)
   const level = ov !== null && ov.base === setting ? ov.level : setting
-  if ((await read($, lastLevel)) !== level) {
+  if ((await read($, lastLevel)) !== level && ov?.turnId === undefined) {
     // A turned-down switch holds only while the level it was turned down on does.
     await update($, declined, () => ({}))
     await update($, lastLevel, () => level)
@@ -272,9 +463,12 @@ async function decide($: EngineInterface, p: Pending, setting: string, level: st
   } else if (p.answers === null) {
     line = p.isGoAhead ? w.goAhead : w.unclear
   } else {
-    ;[line, chosen, isNews] = await weigh($, p.answers, p.isGoAhead, setting, level, s)
-    const v = verdict(p.answers, chosen)
-    drawn = { current: chosen, rec: v.level, kind: v.kind }
+    const mins = switchMins(await readTally($), s.selfTune)
+    ;[line, chosen, isNews] = await weigh($, p.answers, p.isGoAhead, setting, level, mins, s)
+    const v = verdict(p.answers, chosen, mins)
+    drawn = { current: chosen, rec: v.level, kind: v.kind, share: v.share }
+    const named = verdict(p.answers, null).level
+    await update($, turn, t => (t === null ? t : { ...t, rec: named }))
   }
   const prefix = chosen !== setting ? w.sending(chosen, setting) + ' ' : ''
   // A status line stays until replaced: one quiet doesn't show is cleared, not left stale.
@@ -292,10 +486,11 @@ async function weigh(
   isGoAhead: boolean,
   setting: string,
   level: string,
+  mins: { up: number; down: number },
   s: Settings,
 ): Promise<[string, string, boolean]> {
   const w = WORDS[s.l]
-  const v: Verdict = { ...verdict(answers, level), sized: isGoAhead }
+  const v: Verdict = { ...verdict(answers, level, mins), sized: isGoAhead }
   if (v.kind === 'ambiguous') $.ui.toast(w.ambiguous)
   let line = statusLine(s.l, v, level)
   let chosen = level
@@ -326,6 +521,7 @@ async function weigh(
         await update($, declined, d => ({ ...d, [dir]: level }))
         line = w.stayed(v, level)
       }
+      if (answer === 'switch' || answer === 'keep') await tally($, dir, answer === 'switch')
     } else {
       await update($, offer, () => ({ direction: dir, level: target, from: level, setting, share: v.share }))
       answer = 'offered'
@@ -333,7 +529,7 @@ async function weigh(
   }
   await log($, s, {
     event: 'decision', kind: v.kind, rec: v.level, share: round(v.share), setting, level, chosen,
-    answer, goAhead: isGoAhead, ask_first: s.askFirst,
+    answer, goAhead: isGoAhead, ask_first: s.askFirst, mins,
   })
   return [line, chosen, isSwitch || v.kind === 'ambiguous']
 }
@@ -354,21 +550,168 @@ async function switchTo($: EngineInterface, level: string, setting: string): Pro
 
 async function acceptOffer($: EngineInterface, o: Offer, s: Settings) {
   // Not from o.setting: the person may have moved the setting since the offer.
-  await update($, override, () => ({ level: o.level, base: null }))
+  await update($, override, () => ({ level: o.level, base: null, ...(o.turnId !== undefined ? { turnId: o.turnId } : {}) }))
   await update($, offer, () => null)
   $.ui.status(WORDS[s.l].switched(o.level))
-  await log($, s, { event: 'offer', answer: 'switch', rec: o.level, from: o.from, setting: o.setting })
+  if (o.turnId === undefined) await tally($, o.direction, true)
+  await log($, s, { event: 'offer', answer: 'switch', rec: o.level, from: o.from, setting: o.setting, midturn: o.turnId !== undefined })
 }
 
 async function declineOffer($: EngineInterface, o: Offer, s: Settings) {
-  await update($, declined, d => ({ ...d, [o.direction]: o.from }))
+  if (o.turnId === undefined) {
+    await update($, declined, d => ({ ...d, [o.direction]: o.from }))
+    await tally($, o.direction, false)
+  }
   await update($, offer, () => null)
-  await log($, s, { event: 'offer', answer: 'keep', rec: o.level, from: o.from, setting: o.setting })
+  await log($, s, { event: 'offer', answer: 'keep', rec: o.level, from: o.from, setting: o.setting, midturn: o.turnId !== undefined })
 }
 
 async function closeOffer($: EngineInterface) {
   await update($, offer, () => null)
   await update($, card, () => null)
+}
+
+// ------------------------------------------------------------- the turn
+
+/** The first main-loop request of a turn opens its ledger note. */
+async function openTurn($: EngineInterface, turnId: string, index: number) {
+  const note = await read($, turn)
+  if (note !== null && note.turnId === turnId) return
+  if (note !== null && index > 0) return // a note for another turn still open: leave it to its turn.complete
+  const begun = await read($, started)
+  const task = begun !== null && begun.turnId === turnId ? begun.text : ''
+  const usdAtStart = await costNow($)
+  await update($, turn, () => ({ turnId, task, rec: null, level: null, out: 0, usdAtStart, steps: [], isChecked: false }))
+}
+
+async function noteStep($: EngineInterface, turnId: string, level: string | null, said: string, tools: string[]) {
+  await update($, turn, t =>
+    t === null || t.turnId !== turnId
+      ? t
+      : { ...t, level: level ?? t.level, steps: [...t.steps, { tools, said: said.slice(-300) }].slice(-6) },
+  )
+}
+
+/** The turn ended: one ledger row, and a switch made for this turn alone ends with it. */
+async function closeTurn($: EngineInterface, turnId: string, out: number) {
+  const note = await read($, turn)
+  const ov = await read($, override)
+  if (ov !== null && ov.turnId === turnId) await update($, override, () => null)
+  await update($, offer, o => (o !== null && o.turnId === turnId ? null : o))
+  if (note === null || note.turnId !== turnId) return
+  await update($, turn, () => null)
+  if (note.level === null) return
+  const now = await costNow($)
+  const spent = note.usdAtStart !== null && now !== null ? Math.max(0, now - note.usdAtStart) : 0
+  const row: LedgerTurn = { t: await $.clock.now(), level: note.level, rec: note.rec, usd: spent, out }
+  try {
+    await $.store.set('ledger', added(await readLedger($), row))
+    await update($, ledgerTick, n => n + 1)
+  } catch {
+    // A ledger that can't be kept never gets in the way.
+  }
+}
+
+/**
+ * Once per long turn on high or max: if the rest looks mechanical, offer
+ * low for the rest of this turn, in the band (never a dialog mid-turn).
+ */
+async function midTurnCheck($: EngineInterface, turnId: string, index: number, level: string, setting: string, s: Settings) {
+  if (!s.midturn || !s.key || index < MID_TURN_STEP || (level !== 'high' && level !== 'max' && level !== 'xhigh')) return
+  const note = await read($, turn)
+  if (note === null || note.turnId !== turnId || note.isChecked || (await read($, offer)) !== null) return
+  await update($, turn, t => (t === null ? t : { ...t, isChecked: true }))
+  try {
+    const body = await jevCall($, s.key, midTurnBody(note.task, note.steps))
+    const answers = body.answers as { rest_is_mechanical?: { noul?: unknown } } | undefined
+    const p = answers?.rest_is_mechanical?.noul
+    await log($, s, { event: 'midturn', level, mechanical: typeof p === 'number' ? round(p) : null, step: index })
+    if (typeof p !== 'number' || p < MID_TURN_MIN) return
+    const hint: Offer = { direction: 'down', level: 'low', from: level, setting, share: p, turnId }
+    await update($, offer, () => hint)
+  } catch {
+    // No hint this time.
+  }
+}
+
+/**
+ * The band's side facts, as room allows: what this turn and today cost, how
+ * full the context is, the 5-hour limit, the levels subagents got.
+ */
+async function bandFacts($: EngineInterface, s: Settings, columns: number): Promise<string[]> {
+  const w = WORDS[s.l]
+  const facts: string[] = []
+  try {
+    const u = await $.session.usage()
+    const now = u.cost?.usd ?? null
+    const note = await read($, turn)
+    const rows = await readLedger($)
+    const ledger = summary(rows, await $.clock.now())
+    const turnUsd = note !== null && note.usdAtStart !== null && now !== null ? Math.max(0, now - note.usdAtStart) : null
+    const last = rows.at(-1)
+    if (columns >= 70 && turnUsd !== null) facts.push(w.turnCost(usd(turnUsd)))
+    else if (columns >= 70 && last !== undefined) facts.push(w.lastTurn(usd(last.usd)))
+    if (columns >= 70) facts.push(w.today(usd(ledger.todayUsd + (turnUsd ?? 0))))
+    if (columns >= 100 && u.context.percent !== undefined) facts.push(w.context(Math.round(u.context.percent)))
+    const five = u.rateLimits.find(r => r.kind === 'five_hour')
+    if (columns >= 110 && five !== undefined) facts.push(w.limit(Math.round(five.percentUsed)))
+  } catch {
+    // No usage figures: the band still shows the verdict.
+  }
+  const subs = Object.values(await read($, agentLevels))
+  if (columns >= 130 && subs.length > 0) {
+    const counts = LEVELS.map(lv => [lv, subs.filter(x => x === lv).length] as const).filter(([, n]) => n > 0)
+    facts.push(w.subagents(counts.map(([lv, n]) => (n > 1 ? `${n}×${lv}` : lv)).join(' ')))
+  }
+  return facts
+}
+
+/** A subagent's first request before its spawn returned: it takes the oldest sized spawn not yet taken. */
+async function claimSpawn($: EngineInterface, agentId: string): Promise<string | undefined> {
+  const free = (await read($, spawning)).find(x => x.agentId === null)
+  if (free === undefined) return undefined
+  await update($, spawning, list => list.map(x => (x.id === free.id ? { ...x, agentId } : x)))
+  await update($, agentLevels, m => ({ ...m, [agentId]: free.level }))
+  return free.level
+}
+
+async function costNow($: EngineInterface): Promise<number | null> {
+  try {
+    return (await $.session.usage()).cost?.usd ?? null
+  } catch {
+    return null
+  }
+}
+
+// ------------------------------------------------------------- what lasts across sessions
+
+async function readLedger($: EngineInterface): Promise<LedgerTurn[]> {
+  try {
+    const value = await $.store.get('ledger')
+    return Array.isArray(value) ? (value as LedgerTurn[]) : []
+  } catch {
+    return []
+  }
+}
+
+async function readTally($: EngineInterface): Promise<Tally | null> {
+  try {
+    return ((await $.store.get('tally')) as Tally | undefined) ?? null
+  } catch {
+    return null
+  }
+}
+
+async function tally($: EngineInterface, dir: 'up' | 'down', isTaken: boolean) {
+  try {
+    await $.store.set('tally', tallied(await readTally($), dir, isTaken))
+  } catch {
+    // Untuned is fine.
+  }
+}
+
+async function openLedger($: EngineInterface, s: Settings) {
+  await $.ui.open({ id: LEDGER_PANE, title: WORDS[s.l].ledgerTitle })
 }
 
 // ------------------------------------------------------------- the log
