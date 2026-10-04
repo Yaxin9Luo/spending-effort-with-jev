@@ -302,6 +302,28 @@ describe('the spec interview', () => {
     expect(context.join('\n')).not.toContain('Which services') // left to Claude: not passed on
   })
 
+  test('once the questions are asked, the hand-off is offered max', { options: ASK }, async ($, on) => {
+    const w = world(on, {
+      jev: [jev('high', 0.9, 0.9)],
+      drafted: '1. What counts as done?\n2. Which commands should it have?',
+      answers: ['CI green', 1, 0], // an answer, "Start now", then "Switch to max"
+    })
+    mock.clock(on)
+    await turn($, w, 'build me a CLI for this repo and keep going until done, I will be away', 'low')
+    expect(w.asked.at(-1)).toContain('Switch to max')
+    expect(w.contexts.at(-1)?.join('\n')).toContain('A: CI green')
+    expect(w.sent.map(x => x.effort)).toEqual(['max'])
+  })
+
+  test('with the interview off, a fuzzy hand-off is only flagged', { options: { ...ASK, interview: false } }, async ($, on) => {
+    const w = world(on, { jev: [jev('high', 0.9, 0.9)] })
+    mock.clock(on)
+    await turn($, w, 'build me a CLI for this repo and keep going until done, I will be away', 'low')
+    expect(w.asked.length).toBe(0)
+    expect(w.toasts.some(t => t.includes('fuzzy spec'))).toBe(true)
+    expect(w.sent.map(x => x.effort)).toEqual(['low'])
+  })
+
   test('nothing is asked for a clear message', { options: BASE }, async ($, on) => {
     const w = world(on, { jev: [jev('max', 0.9, 0.1)] })
     mock.clock(on)

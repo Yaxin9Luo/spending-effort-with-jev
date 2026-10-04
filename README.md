@@ -29,7 +29,7 @@ New in v0.3, now that it's a mod:
 - **A switch lasts one turn.** The next message is judged on its own; turning one down never silences the next.
 - **Subagents get their own level.** Each subagent's task is sized by Jev (never above high) while your conversation stays on yours.
 - **Mid-turn downgrade.** In a long high or max turn, if the rest looks mechanical, it offers low for the rest of that turn.
-- **A spec interview** before a long hands-off run that leaves key requirements open: two or three questions, answers passed to Claude.
+- **A spec interview** before a long hands-off run that leaves key requirements open: two or three questions, answers passed to Claude, then max offered for the run.
 - **Tunes to you.** Switches you keep taking come a little sooner; ones you keep turning down, a little later.
 - **A ledger** (`/effort-ledger`): turns per level, how often you followed Jev, and Jev's own API cost.
 
@@ -77,7 +77,7 @@ The line shows in Claude Code's status area as soon as Claude's first request is
 | `○ effort: go-ahead · keep your level` | A go-ahead ("ok", "continue") whose work couldn't be sized (see [How it works](#how-it-works)). |
 | `⬆ effort: high · you chose low` | You kept your level when this same message was offered a switch; it isn't asked twice. |
 | `▶ high (bar says low) · …` | You switched here: Claude's requests go out on `high` while the setting under the input box stays `low`. Every line starts with it while that lasts. |
-| `⚠ effort: long run, fuzzy spec → have Claude interview you, then go max` | A long hands-off task with open questions (also a toast). More effort won't fix a wrong reading of the task; a few questions first will. |
+| `⚠ effort: long run, fuzzy spec → have Claude interview you, then go max` | A long hands-off task with open questions (also a toast), when `interview` is off. More effort won't fix a wrong reading of the task; a few questions first will. |
 
 **"now low"** is the level Claude's request is about to run on: your setting, or the level you switched to here. The mod reads it from the request itself, so a switch you made a moment ago is never missed.
 
@@ -96,7 +96,7 @@ The number is how much of Jev's whole answer backs the line: for a switch, the s
 - **Ledger.** The band's Ledger button (or `/effort-ledger`) opens a pane: Jev's API cost and number of calls today and over the last 7 days, the turns that ran on each level, and on how many of the turns Jev judged you ran its level.
 - **Subagents get their own level.** When Claude starts a subagent, Jev sizes its task: a lookup runs on low, a careful check on high (never max, which is yours to choose). The main conversation stays on your level. Subagents started together are announced in one toast.
 - **A mid-turn hint.** Once in a long high or max turn, the mod asks Jev whether what's left is mechanical (applying a decided change, running tests, writing the commit). If so, the band offers low for the rest of that turn only.
-- **An interview before long fuzzy runs.** When a message hands Claude a long run with important things left open, two or three questions come first (drafted by the small model from your message); your answers go to Claude with it. "Up to Claude" skips a question, "Start now" the rest.
+- **An interview before long fuzzy runs.** When a message hands Claude a long run with important things left open, two or three questions come first (drafted by the small model from your message); your answers go to Claude with it. "Up to Claude" skips a question, "Start now" the rest. Then max is offered for the run, as any switch is.
 - **Thresholds that learn from you.** After ten answers in one direction, switches you keep taking need a little less of Jev's vote and ones you keep turning down a little more (between 0.6 and 0.85, each direction on its own).
 
 ## Options

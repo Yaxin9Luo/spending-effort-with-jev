@@ -19,6 +19,8 @@ export type Pending = {
   isGoAhead: boolean
   /** What the person typed, to know the same message sent again. In memory only. */
   text: string
+  /** The person was asked the spec questions: the hand-off is no longer fuzzy, so max is offered for it. */
+  isInterviewed?: true
   /** Why there is no answer: Jev failed, or refused the key. */
   failure?: 'error' | 'badKey'
   /** When it was judged, epoch ms. */

@@ -217,7 +217,7 @@ export const register: Register = (on, options) => {
           ))}
         </Text>
       )
-    const share = c?.share !== undefined && !o ? ` (${c.share.toFixed(2)})` : ''
+    const share = c?.share !== undefined && c.rec !== null && !o ? ` (${c.share.toFixed(2)})` : ''
     const words = (o ? (o.isMidTurn ? w.midBand(o) : w.band(o)) : c ? w.cardLine(c) : '') + share
     const facts = await bandFacts($, s, e.props.bodyColumns)
     return (
@@ -310,7 +310,9 @@ async function judge($: EngineInterface, text: string, s: Settings, order: { lat
     if (isStale()) return []
     await update($, pending, () => ({ answers, isGoAhead: goAhead, text, t }))
     if (s.interview && answers !== null && answers.handoff_ambiguous.noul >= AMBIGUITY_MIN) {
-      return await interview($, text, recent, s)
+      const spec = await interview($, text, recent, s)
+      if (!isStale()) await update($, pending, q => (q === null || q.t !== t ? q : { ...q, isInterviewed: true as const }))
+      return spec
     }
     return []
   } catch (err) {
@@ -494,8 +496,8 @@ async function decide($: EngineInterface, p: Pending, setting: string, level: st
     line = p.isGoAhead ? w.goAhead : w.unclear
   } else {
     const mins = switchMins(await readTally($), s.selfTune)
-    ;[line, chosen, isNews] = await weigh($, p.answers, p.isGoAhead, p.text, setting, level, mins, s, turnId)
-    const v = verdict(p.answers, chosen, mins)
+    ;[line, chosen, isNews] = await weigh($, p, p.answers, setting, level, mins, s, turnId)
+    const v = judged(p, p.answers, chosen, mins)
     drawn = { current: chosen, rec: v.level, kind: v.kind, share: v.share }
     const named = verdict(p.answers, null).level
     await update($, turn, t => (t === null ? t : { ...t, rec: named }))
@@ -509,12 +511,22 @@ async function decide($: EngineInterface, p: Pending, setting: string, level: st
   return chosen
 }
 
+/**
+ * Jev's verdict for the message. A fuzzy long hand-off whose spec questions
+ * were put to the person is no longer fuzzy: it is max work, offered as such.
+ */
+function judged(p: Pending, answers: Answers, level: string, mins: { up: number; down: number }): Verdict {
+  const v = verdict(answers, level, mins)
+  if (v.kind !== 'ambiguous' || p.isInterviewed !== true) return v
+  const share = answers.handoff_ambiguous.noul
+  return level === 'max' ? { kind: 'match', level: 'max', share } : { kind: 'up', level: 'max', share }
+}
+
 /** Jev's answer against the level: the line, the level to send, and whether it is news. */
 async function weigh(
   $: EngineInterface,
+  p: Pending,
   answers: Answers,
-  isGoAhead: boolean,
-  text: string,
   setting: string,
   level: string,
   mins: { up: number; down: number },
@@ -522,7 +534,8 @@ async function weigh(
   turnId: string,
 ): Promise<[string, string, boolean]> {
   const w = WORDS[s.l]
-  const v: Verdict = { ...verdict(answers, level, mins), sized: isGoAhead }
+  const { isGoAhead, text } = p
+  const v: Verdict = { ...judged(p, answers, level, mins), sized: isGoAhead }
   if (v.kind === 'ambiguous') $.ui.toast(w.ambiguous)
   let line = statusLine(s.l, v, level)
   let chosen = level
