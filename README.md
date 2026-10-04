@@ -3,7 +3,7 @@
 **Know which `/effort` level each message needs, and switch with one key.** A Claude Code plugin: every message you type is read by [TypeSafe](https://typesafe.ai)'s Jev model, which judges how much effort the task deserves. Before Claude starts, you get a one-line verdict against the level Claude is about to run on, and when that level looks wrong, one key switches it.
 
 - **With `ask_first` on**, a dialog asks before Claude starts. On `low` for a tricky bug: "This looks like high-effort work, and the session is on low. Switch to high for it?" On `max` for a quick question, it offers to drop to `low`.
-- **With it off**, nothing waits on you: while Claude works, a band above the prompt offers `1: Switch to high  2: Keep low  0: Close`, and a switch applies from Claude's next step. Once the turn is over the digits stop working (a bare "1" is more likely your answer to Claude), and the band's buttons are clicked instead, or reached with ctrl+x tab in the terminal.
+- **With it off**, nothing waits on you: while Claude works, a band above the prompt offers `1: Switch to high  2: Keep low  0: Close`, and a switch applies from Claude's next step. The offer goes when the turn ends.
 
 It switches only when you say so. Needs Claude Code 2.1.287 or later: v0.3 is written as a mod (a TypeScript hooks module), which is what lets it see your live level and switch it.
 
@@ -57,8 +57,8 @@ The number is how much of Jev's whole answer backs the line: for a switch, the s
 
 ## Switching
 
-- **A switch lasts for the session and applies from Claude's next step.** Claude Code has no way for a plugin to change your effort setting, so the mod rewrites the level on each request of the main conversation instead. The effort control under the input box keeps showing your setting; the status line starts with `▶ high (bar says low)` while the mod is rewriting. Subagents' requests are left alone.
-- **Your own setting wins.** Run `/effort` (any level, including the one you had) or pick a different level under the input box, and the mod stops rewriting from the next request. Picking the level the control already shows changes nothing it can see, so use `/effort` for that. A switch also ends when the session restarts.
+- **A switch holds for that message's turn only.** Claude Code has no way for a plugin to change your effort setting, so the mod rewrites the level on the requests of that turn instead. The effort control under the input box keeps showing your setting; the status line starts with `▶ high (bar says low)` while the mod is rewriting, and says `back on your setting` when the turn ends. Your next message is judged against the setting again, so what the control shows is what runs unless you just said otherwise.
+- **Your own setting wins.** Run `/effort` or pick a different level under the input box, and the mod stops rewriting from the next request.
 - **Keep** remembers the direction: from the same level, a switch the same way isn't offered again, even if Jev moves between high and max; the status line just notes it. Once your level changes, it can be offered again. Closing the band or dismissing the dialog changes nothing and remembers nothing.
 - With the band, the switch can't touch the request already running; it applies from Claude's next one. With `ask_first`, the dialog comes before the first request, so the whole turn runs on the level you pick.
 

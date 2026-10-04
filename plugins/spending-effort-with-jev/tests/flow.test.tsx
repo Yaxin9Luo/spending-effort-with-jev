@@ -215,15 +215,17 @@ describe('ask_first', () => {
     expect(w.sent).toEqual(['high', 'low'])
   })
 
-  test('while a switch is in effect, every line says so', { options: ASK }, async ($, on) => {
+  test('a switch holds for its own turn only; the next message runs on the setting', { options: ASK }, async ($, on) => {
     const w = world(on, { jev: [jev('high', 0.97), 500], pick: 0, classify: undefined })
     mock.clock(on)
     await send($, 'fix the flaky integration test', 'low') // switched to high
-    await send($, 'continue', 'low') // a go-ahead with nothing to size it from
-    expect(w.statuses.at(-1)).toBe('▶ high (bar says low) · ○ effort: go-ahead · keep your level')
+    expect(w.statuses.at(-1)).toBe('▶ high (bar says low) · ✓ effort: high fits this (0.99) · now high')
+    await step($, 'low', 1) // the same turn: still high
+    await send($, 'continue', 'low') // the next message: the setting again
+    expect(w.statuses.at(-1)).toBe('○ effort: go-ahead · keep your level')
     await send($, 'and the next one', 'low') // Jev fails
-    expect(w.statuses.at(-1)).toBe("▶ high (bar says low) · ○ effort: no tip this time (Jev didn't answer)")
-    expect(w.sent).toEqual(['high', 'high', 'high'])
+    expect(w.statuses.at(-1)).toBe("○ effort: no tip this time (Jev didn't answer)")
+    expect(w.sent).toEqual(['high', 'high', 'low', 'low'])
   })
 
   test('the setting under the input box takes back control', { options: ASK }, async ($, on) => {

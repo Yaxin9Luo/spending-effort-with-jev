@@ -488,7 +488,7 @@ export const WORDS = {
     ledgerOpened: 'Effort ledger opened.',
     ledgerEmpty: 'Nothing recorded yet: each Jev answer and each main-conversation turn adds to it.',
     ledgerHead: (today: string, week: string, calls: number) => `Jev API cost: today ${today} · last 7 days ${week} (${calls} calls)`,
-    ledgerRow: (level: string, turns: number) => `${level.padEnd(7)} ${String(turns).padStart(5)} turns`,
+    ledgerRow: (level: string, turns: number) => `${level.padEnd(7)} ${String(turns).padStart(5)} turn${turns === 1 ? '' : 's'}`,
     ledgerJev: (judged: number, followed: number) =>
       judged === 0 ? 'No turn Jev judged yet.' : `Jev named a level on ${judged} turn${judged === 1 ? '' : 's'}; ${followed} ran on it.`,
     specHeader: 'Spec',

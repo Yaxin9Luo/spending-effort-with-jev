@@ -142,7 +142,7 @@ export const register: Register = (on, options) => {
       return yield* next({ ...e, effort: sized as Level })
     }
     await openTurn($, e.turnId, e.index)
-    const effort = await levelFor($, e.effort, s)
+    const effort = await levelFor($, e.effort, s, e.turnId)
     const sent = effort ?? (typeof e.effort === 'string' ? e.effort : null)
     if (sent !== null) await midTurnCheck($, e.turnId, e.index, sent, typeof e.effort === 'string' ? e.effort : sent, s)
     const result = effort === undefined || effort === e.effort ? yield* next(e) : yield* next({ ...e, effort: effort as Level })
@@ -152,7 +152,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId === undefined) await closeTurn($, e.turnId)
+    if (e.agentId === undefined) await closeTurn($, e.turnId, s)
     return result
   })
 
@@ -210,7 +210,7 @@ export const register: Register = (on, options) => {
         </Text>
       )
     const share = c?.share !== undefined && !o ? ` (${c.share.toFixed(2)})` : ''
-    const words = (o ? (o.turnId !== undefined ? w.midBand(o) : w.band(o)) : c ? w.cardLine(c) : '') + share
+    const words = (o ? (o.isMidTurn ? w.midBand(o) : w.band(o)) : c ? w.cardLine(c) : '') + share
     const facts = await bandFacts($, s, e.props.bodyColumns)
     return (
       <Box flexDirection="row">
@@ -435,7 +435,7 @@ async function within<T>($: EngineInterface, ms: number, work: Promise<T>): Prom
 // ------------------------------------------------------------- deciding
 
 /** The effort to send on this main-loop request; undefined leaves it alone. */
-async function levelFor($: EngineInterface, setting: unknown, s: Settings): Promise<string | undefined> {
+async function levelFor($: EngineInterface, setting: unknown, s: Settings, turnId: string): Promise<string | undefined> {
   if (typeof setting !== 'string') {
     // A model without effort, or a token budget: nothing to compare or switch.
     if ((await read($, pending)) !== null) {
@@ -445,6 +445,11 @@ async function levelFor($: EngineInterface, setting: unknown, s: Settings): Prom
     return undefined
   }
   let ov = await read($, override)
+  if (ov !== null && ov.turnId !== turnId) {
+    // A switch is for the turn it was chosen in; one whose end went unseen goes now.
+    await update($, override, () => null)
+    ov = null
+  }
   if (ov !== null && ov.base === null) {
     // A switch pressed in the band starts from the setting this request carries.
     const start: Override | null = ov.level === setting ? null : { ...ov, base: setting }
@@ -454,18 +459,18 @@ async function levelFor($: EngineInterface, setting: unknown, s: Settings): Prom
   // The person changed the setting themselves: theirs wins.
   if (ov !== null && ov.base !== setting) await release($, s, setting)
   const level = ov !== null && ov.base === setting ? ov.level : setting
-  if ((await read($, lastLevel)) !== level && ov?.turnId === undefined) {
-    // A turned-down switch holds only while the level it was turned down on does.
+  if ((await read($, lastLevel)) !== setting) {
+    // A turned-down switch holds only while the setting it was turned down on does.
     await update($, declined, () => ({}))
-    await update($, lastLevel, () => level)
+    await update($, lastLevel, () => setting)
   }
   const p = await read($, pending)
   if (p === null) return level
   await update($, pending, () => null)
-  return decide($, p, setting, level, s)
+  return decide($, p, setting, level, s, turnId)
 }
 
-async function decide($: EngineInterface, p: Pending, setting: string, level: string, s: Settings): Promise<string> {
+async function decide($: EngineInterface, p: Pending, setting: string, level: string, s: Settings, turnId: string): Promise<string> {
   const w = WORDS[s.l]
   let line: string
   let chosen = level
@@ -478,7 +483,7 @@ async function decide($: EngineInterface, p: Pending, setting: string, level: st
     line = p.isGoAhead ? w.goAhead : w.unclear
   } else {
     const mins = switchMins(await readTally($), s.selfTune)
-    ;[line, chosen, isNews] = await weigh($, p.answers, p.isGoAhead, setting, level, mins, s)
+    ;[line, chosen, isNews] = await weigh($, p.answers, p.isGoAhead, setting, level, mins, s, turnId)
     const v = verdict(p.answers, chosen, mins)
     drawn = { current: chosen, rec: v.level, kind: v.kind, share: v.share }
     const named = verdict(p.answers, null).level
@@ -502,6 +507,7 @@ async function weigh(
   level: string,
   mins: { up: number; down: number },
   s: Settings,
+  turnId: string,
 ): Promise<[string, string, boolean]> {
   const w = WORDS[s.l]
   const v: Verdict = { ...verdict(answers, level, mins), sized: isGoAhead }
@@ -528,7 +534,7 @@ async function weigh(
         answer = 'dismissed'
       }
       if (answer === 'switch') {
-        chosen = await switchTo($, target, setting)
+        chosen = await switchTo($, target, setting, turnId)
         // The share that backed the switch, not a made-up certainty.
         line = w.match({ ...v, kind: 'match', level: target }, chosen)
       } else if (answer === 'keep') {
@@ -537,7 +543,7 @@ async function weigh(
       }
       if (answer === 'switch' || answer === 'keep') await tally($, dir, answer === 'switch')
     } else {
-      await update($, offer, () => ({ direction: dir, level: target, from: level, setting, share: v.share }))
+      await update($, offer, () => ({ direction: dir, level: target, from: level, setting, share: v.share, turnId }))
       answer = 'offered'
     }
   }
@@ -556,28 +562,28 @@ async function release($: EngineInterface, s: Settings, setting?: string) {
   $.ui.status(WORDS[s.l].released(setting))
 }
 
-async function switchTo($: EngineInterface, level: string, setting: string): Promise<string> {
-  await update($, override, () => (level === setting ? null : { level, base: setting }))
+async function switchTo($: EngineInterface, level: string, setting: string, turnId: string): Promise<string> {
+  await update($, override, () => (level === setting ? null : { level, base: setting, turnId }))
   await update($, offer, () => null)
   return level
 }
 
 async function acceptOffer($: EngineInterface, o: Offer, s: Settings) {
   // Not from o.setting: the person may have moved the setting since the offer.
-  await update($, override, () => ({ level: o.level, base: null, ...(o.turnId !== undefined ? { turnId: o.turnId } : {}) }))
+  await update($, override, () => ({ level: o.level, base: null, turnId: o.turnId }))
   await update($, offer, () => null)
   $.ui.status(WORDS[s.l].switched(o.level))
-  if (o.turnId === undefined) await tally($, o.direction, true)
-  await log($, s, { event: 'offer', answer: 'switch', rec: o.level, from: o.from, setting: o.setting, midturn: o.turnId !== undefined })
+  if (!o.isMidTurn) await tally($, o.direction, true)
+  await log($, s, { event: 'offer', answer: 'switch', rec: o.level, from: o.from, setting: o.setting, midturn: o.isMidTurn === true })
 }
 
 async function declineOffer($: EngineInterface, o: Offer, s: Settings) {
-  if (o.turnId === undefined) {
+  if (!o.isMidTurn) {
     await update($, declined, d => ({ ...d, [o.direction]: o.from }))
     await tally($, o.direction, false)
   }
   await update($, offer, () => null)
-  await log($, s, { event: 'offer', answer: 'keep', rec: o.level, from: o.from, setting: o.setting, midturn: o.turnId !== undefined })
+  await log($, s, { event: 'offer', answer: 'keep', rec: o.level, from: o.from, setting: o.setting, midturn: o.isMidTurn === true })
 }
 
 async function closeOffer($: EngineInterface) {
@@ -605,11 +611,16 @@ async function noteStep($: EngineInterface, turnId: string, level: string | null
   )
 }
 
-/** The turn ended: one ledger row, and a switch made for this turn alone ends with it. */
-async function closeTurn($: EngineInterface, turnId: string) {
+/** The turn ended: one ledger row, and its switch and offer end with it. */
+async function closeTurn($: EngineInterface, turnId: string, s: Settings) {
   const note = await read($, turn)
   const ov = await read($, override)
-  if (ov !== null && ov.turnId === turnId) await update($, override, () => null)
+  if (ov !== null && ov.turnId === turnId) {
+    await update($, override, () => null)
+    const base = ov.base ?? undefined
+    $.ui.status(WORDS[s.l].released(base))
+    if (base !== undefined) await update($, card, c => (c === null ? c : { ...c, current: base }))
+  }
   await update($, offer, o => (o !== null && o.turnId === turnId ? null : o))
   if (note === null || note.turnId !== turnId) return
   await update($, turn, () => null)
@@ -638,7 +649,7 @@ async function midTurnCheck($: EngineInterface, turnId: string, index: number, l
     const p = answers?.rest_is_mechanical?.noul
     await log($, s, { event: 'midturn', level, mechanical: typeof p === 'number' ? round(p) : null, step: index })
     if (typeof p !== 'number' || p < MID_TURN_MIN) return
-    const hint: Offer = { direction: 'down', level: 'low', from: level, setting, share: p, turnId }
+    const hint: Offer = { direction: 'down', level: 'low', from: level, setting, share: p, turnId, isMidTurn: true }
     await update($, offer, () => hint)
   } catch {
     // No hint this time.

@@ -33,8 +33,8 @@ export type Override = {
    * the offer).
    */
   base: string | null
-  /** A mid-turn switch, for this turn only. */
-  turnId?: string
+  /** The turn it was chosen in: a switch holds for that turn only. */
+  turnId: string
 }
 
 /** Switches the person turned down, by direction: the level they chose to stay on. */
@@ -49,8 +49,10 @@ export type Offer = {
   /** The session's own setting at the time. */
   setting: string
   share: number
-  /** A mid-turn offer: it holds for this turn only. */
-  turnId?: string
+  /** The turn it was offered in: it goes, unanswered, when that turn ends. */
+  turnId: string
+  /** The mid-turn hint (the rest of a long turn looks mechanical), not a verdict on a message. */
+  isMidTurn?: true
 }
 
 /** The latest verdict, drawn as a gauge above the prompt. */

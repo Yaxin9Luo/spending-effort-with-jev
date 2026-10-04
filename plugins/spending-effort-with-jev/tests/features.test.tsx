@@ -137,12 +137,13 @@ describe('the ledger', () => {
     const w = world(on, { jev: [jev('high', 0.97), jev('low', 0.97)], answers: [0, 1] })
     mock.clock(on)
     await turn($, w, 'fix the flaky integration test', 'low') // switched to high
-    await turn($, w, 'what does this flag do?', 'low') // Jev: low, but the switch holds: kept high
+    await turn($, w, 'what does this flag do?', 'low') // a new turn: back on the setting, low, as Jev says
     for (const surface of ['terminal', 'desktop'] as const) {
       const pane = await $.ui.mount({ ...PANE, surface })
       expect((await pane.find({ text: /Jev API cost: today \$0\.0008 · last 7 days \$0\.0008 \(2 calls\)/ })) !== undefined).toBe(true)
-      expect((await pane.find({ text: /^high\s+2 turns/ })) !== undefined).toBe(true)
-      expect((await pane.find({ text: /Jev named a level on 2 turns; 1 ran on it\./ })) !== undefined).toBe(true)
+      expect((await pane.find({ text: /^high\s+1 turn$/ })) !== undefined).toBe(true)
+      expect((await pane.find({ text: /^low\s+1 turn$/ })) !== undefined).toBe(true)
+      expect((await pane.find({ text: /Jev named a level on 2 turns; 2 ran on it\./ })) !== undefined).toBe(true)
       if (surface === 'desktop') expect(await pane.find({ type: 'Svg' })).toBeDefined()
       await pane.unmount()
     }
@@ -189,6 +190,17 @@ describe('the band', () => {
     await wide.unmount()
     const narrow = await $.ui.mount({ plugin: 'spending-effort-with-jev', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 10, bodyColumns: 60 } as any })
     expect(JSON.stringify(await narrow.drawn())).not.toContain('Jev API cost')
+  })
+})
+
+describe('a switch ends with its turn', () => {
+  test('the line says the setting is back and the gauge shows it', { options: ASK }, async ($, on) => {
+    const w = world(on, { jev: [jev('high', 0.97)], answers: [0] })
+    mock.clock(on)
+    await turn($, w, 'fix the flaky integration test', 'low') // switched to high for this turn
+    expect(w.statuses.at(-1)).toBe('○ effort: back on your setting, low')
+    const band = await $.ui.mount({ plugin: 'spending-effort-with-jev', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100 } as any })
+    expect(JSON.stringify(await band.drawn())).toContain('now low')
   })
 })
 
