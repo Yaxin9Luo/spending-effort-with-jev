@@ -200,7 +200,7 @@ describe('ask_first', () => {
     expect(w.asked.length).toBe(1)
     expect(w.asked[0]).toContain('high')
     expect(w.sent).toEqual(['high'])
-    expect(w.statuses.at(-1)).toBe('✓ effort: high fits this (0.99) · now high · sending high (your setting: low)')
+    expect(w.statuses.at(-1)).toBe('▶ high (bar says low) · ✓ effort: high fits this (0.99) · now high')
     await step($, 'low', 1)
     expect(w.sent).toEqual(['high', 'high'])
   })
@@ -220,9 +220,9 @@ describe('ask_first', () => {
     mock.clock(on)
     await send($, 'fix the flaky integration test', 'low') // switched to high
     await send($, 'continue', 'low') // a go-ahead with nothing to size it from
-    expect(w.statuses.at(-1)).toBe('○ effort: go-ahead · keep your level · sending high (your setting: low)')
+    expect(w.statuses.at(-1)).toBe('▶ high (bar says low) · ○ effort: go-ahead · keep your level')
     await send($, 'and the next one', 'low') // Jev fails
-    expect(w.statuses.at(-1)).toBe("○ effort: no tip this time (Jev didn't answer) · sending high (your setting: low)")
+    expect(w.statuses.at(-1)).toBe("▶ high (bar says low) · ○ effort: no tip this time (Jev didn't answer)")
     expect(w.sent).toEqual(['high', 'high', 'high'])
   })
 
@@ -370,6 +370,26 @@ describe('the band (ask_first off)', () => {
     }
   })
 
+  test('the verdict shows as a gauge: an SVG on desktop, block bars in the terminal', { options: ASK }, async ($, on) => {
+    world(on, { jev: [jev('high', 0.97)] })
+    mock.clock(on)
+    await send($, 'fix the flaky integration test', 'high')
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const band = await $.ui.mount({
+        plugin: 'spending-effort-with-jev', surface, component: 'AbovePrompt',
+        props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100 } as any,
+      })
+      const gauge = surface === 'desktop' ? await band.find({ type: 'Svg' }) : await band.find({ type: 'Text', text: '▂▄▆█' })
+      expect(gauge?.type).toBe(surface === 'desktop' ? 'Svg' : 'Text')
+      if (surface === 'desktop') expect(String(gauge?.props.source)).toContain('<rect')
+      expect((await band.find({ text: /high fits · now high/ })) !== undefined).toBe(true)
+      await band.press({ key: 'close' })
+      expect(await band.find({ key: 'close' })).toBe(undefined)
+      await band.unmount()
+      await send($, 'fix the next flaky test', 'high')
+    }
+  })
+
   test('yields to a survey', { options: PLAIN }, async ($, on) => {
     world(on, { jev: [jev('high', 0.97)] })
     mock.clock(on)
@@ -413,7 +433,7 @@ describe('go-aheads', () => {
     expect(w.jevCalls.length).toBe(0)
     expect(w.asked.length).toBe(1)
     expect(w.sent).toEqual(['high'])
-    expect(w.statuses.at(-1)).toBe('✓ effort: high fits this (go-ahead) · now high · sending high (your setting: low)')
+    expect(w.statuses.at(-1)).toBe('▶ high (bar says low) · ✓ effort: high fits this (go-ahead) · now high')
   })
 
   test("a go-ahead Jev can't place is sized the same way", { options: ASK }, async ($, on) => {

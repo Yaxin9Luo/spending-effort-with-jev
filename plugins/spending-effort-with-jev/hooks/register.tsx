@@ -6,7 +6,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionMessage } from 'claude-code'
 
-import type { Answers, Declined, Level, Offer, Override, Pending } from '../types'
+import type { Answers, Card, Declined, Level, Offer, Override, Pending } from '../types'
 import {
   JEV_URL,
   LEVELS,
@@ -14,6 +14,8 @@ import {
   VERSION,
   WORDS,
   certain,
+  gaugeSvg,
+  gaugeText,
   checked,
   goAheadText,
   isGoAhead,
@@ -32,6 +34,7 @@ const override = atom({ plugin: 'spending-effort-with-jev', key: 'override' } as
 const declined = atom({ plugin: 'spending-effort-with-jev', key: 'declined' } as const, {} as Declined)
 const lastLevel = atom({ plugin: 'spending-effort-with-jev', key: 'lastLevel' } as const, null as string | null)
 const offer = atom({ plugin: 'spending-effort-with-jev', key: 'offer' } as const, null as Offer | null)
+const card = atom({ plugin: 'spending-effort-with-jev', key: 'card' } as const, null as Card | null)
 const warnedNoKey = atom({ plugin: 'spending-effort-with-jev', key: 'warnedNoKey' } as const, false)
 
 const GO_AHEAD_TOKENS = 6000 // a go-ahead's plan can sit a few messages back
@@ -99,19 +102,36 @@ export const register: Register = (on, options) => {
   // more likely an answer to Claude ("1"). Clicking still works then.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const o = await read($, offer)
-    if (o === null || e.props.hasSurvey) return next(e)
+    const c = await read($, card)
+    if ((o === null && c === null) || e.props.hasSurvey) return next(e)
     const w = WORDS[s.l]
     // Working: "1: Switch to high". After the turn: "[ Switch to high ]", no digit.
     const look = (d: string) => (e.props.isWorking ? { hotkey: d, plain: true as const } : {})
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text, Button } = ui
+    const current = o?.from ?? c?.current ?? ''
+    const rec = o?.level ?? c?.rec ?? null
+    const gauge =
+      e.surface !== 'terminal' && 'Svg' in ui && ui.Svg ? (
+        <ui.Svg key="gauge" source={gaugeSvg(current, rec)} alt={`effort ${current}`} width={34} height={16} isInteractive />
+      ) : (
+        <Text key="gauge">
+          {gaugeText(current, rec).map(g => (
+            <Text color={g.role === 'off' ? undefined : '#D97757'} dimColor={g.role === 'off'} bold={g.role === 'on'}>
+              {g.bar}
+            </Text>
+          ))}
+        </Text>
+      )
     return (
       <Box flexDirection="row">
-        <Text>{w.band(o)}  </Text>
-        <Button key="switch" {...look('1')} label={w.switchTo(o.level)} onPress={() => acceptOffer($, o, s)} />
-        <Text>  </Text>
-        <Button key="keep" {...look('2')} label={w.keep(o.from)} onPress={() => declineOffer($, o, s)} />
-        <Text>  </Text>
-        <Button key="close" {...look('0')} role="dismiss" label={w.close} onPress={() => closeOffer($)} />
+        {gauge}
+        <Text>  {o ? w.band(o) : c ? w.cardLine(c) : ''}  </Text>
+        {o ? <Button key="switch" {...look('1')} label={w.switchTo(o.level)} onPress={() => acceptOffer($, o, s)} /> : null}
+        {o ? <Text>  </Text> : null}
+        {o ? <Button key="keep" {...look('2')} label={w.keep(o.from)} onPress={() => declineOffer($, o, s)} /> : null}
+        {o ? <Text>  </Text> : null}
+        <Button key="close" {...(o ? look('0') : {})} role="dismiss" label={w.close} onPress={() => closeOffer($)} />
       </Box>
     )
   })
@@ -245,6 +265,7 @@ async function decide($: EngineInterface, p: Pending, setting: string, level: st
   let line: string
   let chosen = level
   let isNews = false // what quiet still shows: a switch, a hand-off warning, a rejected key
+  let drawn: Card | null = null
   if (p.failure !== undefined) {
     line = p.failure === 'badKey' ? w.badKey : w.error
     isNews = p.failure === 'badKey'
@@ -252,10 +273,15 @@ async function decide($: EngineInterface, p: Pending, setting: string, level: st
     line = p.isGoAhead ? w.goAhead : w.unclear
   } else {
     ;[line, chosen, isNews] = await weigh($, p.answers, p.isGoAhead, setting, level, s)
+    const v = verdict(p.answers, chosen)
+    drawn = { current: chosen, rec: v.level, kind: v.kind }
   }
-  const suffix = chosen !== setting ? ' ' + w.sending(chosen, setting) : ''
+  const prefix = chosen !== setting ? w.sending(chosen, setting) + ' ' : ''
   // A status line stays until replaced: one quiet doesn't show is cleared, not left stale.
-  $.ui.status(!s.quiet || isNews || suffix !== '' ? line + suffix : undefined)
+  // What actually runs comes first, so a truncated line still says it.
+  const shown = !s.quiet || isNews || prefix !== ''
+  $.ui.status(shown ? prefix + line : undefined)
+  await update($, card, () => (shown ? drawn : null))
   return chosen
 }
 
@@ -342,6 +368,7 @@ async function declineOffer($: EngineInterface, o: Offer, s: Settings) {
 
 async function closeOffer($: EngineInterface) {
   await update($, offer, () => null)
+  await update($, card, () => null)
 }
 
 // ------------------------------------------------------------- the log

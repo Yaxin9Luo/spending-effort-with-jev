@@ -365,6 +365,41 @@ function argmax(levels: readonly Level[], real: Record<Level, number>): Level {
   return levels.reduce((best, lv) => (real[lv] > real[best] ? lv : best))
 }
 
+// ------------------------------------------------------------- the gauge
+
+const GAUGE_COLOR = '#D97757'
+const GAUGE_HEIGHTS = [5, 8, 11, 14]
+
+/** Which of the four bars a setting lights: xhigh sits between high and max. */
+function lit(level: string): Level[] {
+  return level === 'xhigh' ? ['high', 'max'] : (LEVELS as readonly string[]).includes(level) ? [level as Level] : []
+}
+
+/**
+ * Four pixel bars, low to max: the level Claude runs on solid, the one Jev
+ * names blinking when it differs. Desktop draws it; plain SVG with SMIL only.
+ */
+export function gaugeSvg(current: string, rec: Level | null): string {
+  const on = lit(current)
+  const bars = LEVELS.map((lv, i) => {
+    const h = GAUGE_HEIGHTS[i] ?? 14
+    const x = i * 9
+    const isOn = on.includes(lv)
+    const isRec = rec === lv && !isOn
+    const blink = isRec ? '<animate attributeName="opacity" values="1;0.25;1" dur="1.2s" repeatCount="indefinite"/>' : ''
+    const fill = isOn || isRec ? GAUGE_COLOR : GAUGE_COLOR
+    const opacity = isOn ? 1 : isRec ? 1 : 0.22
+    return `<rect x="${x}" y="${16 - h}" width="7" height="${h}" fill="${fill}" opacity="${opacity}" shape-rendering="crispEdges">${blink}</rect>`
+  })
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 16" width="34" height="16">${bars.join('')}</svg>`
+}
+
+/** The same gauge in block characters, for the terminal. */
+export function gaugeText(current: string, rec: Level | null): Array<{ bar: string; role: 'on' | 'rec' | 'off' }> {
+  const on = lit(current)
+  return LEVELS.map((lv, i) => ({ bar: '▂▄▆█'[i] ?? '█', role: on.includes(lv) ? 'on' : rec === lv ? 'rec' : 'off' }))
+}
+
 // ------------------------------------------------------------- words
 
 export type Lang = 'en' | 'zh'
@@ -391,7 +426,7 @@ export const WORDS = {
     badKey: '⚠ effort: TypeSafe rejected the API key · check it in /plugin',
     noKey: 'spending-effort-with-jev: no TypeSafe API key, so effort tips are off. Set it in /plugin.',
     stayed: (v: Verdict, cur: string) => `${v.kind === 'up' ? '⬆' : '⬇'} effort: ${v.level} · you chose ${cur}`,
-    sending: (level: string, setting: string) => `· sending ${level} (your setting: ${setting})`,
+    sending: (level: string, setting: string) => `▶ ${level} (bar says ${setting}) ·`,
     question: (v: Verdict, cur: string) =>
       v.kind === 'up'
         ? `This looks like ${v.level}-effort work, and the session is on ${cur}. Switch to ${v.level} for it?`
@@ -399,6 +434,12 @@ export const WORDS = {
     header: 'Effort',
     switchTo: (level: string) => `Switch to ${level}`,
     keep: (level: string) => `Keep ${level}`,
+    cardLine: (c: { current: string; rec: string | null; kind: string }) =>
+      c.kind === 'up' ? `needs ${c.rec} · now ${c.current}`
+      : c.kind === 'down' ? `${c.rec} is enough · now ${c.current}`
+      : c.kind === 'match' ? `${c.rec} fits · now ${c.current}`
+      : c.kind === 'unsure' ? `maybe ${c.rec}, not sure · now ${c.current}`
+      : `now ${c.current}`,
     band: (o: { direction: 'up' | 'down'; level: string; from: string }) =>
       `✦ ${o.direction === 'up' ? 'needs' : 'enough:'} ${o.level} · now ${o.from}`,
     close: 'Close',
@@ -418,7 +459,7 @@ export const WORDS = {
     badKey: '⚠ effort：TypeSafe 拒绝了这个 API key，请在 /plugin 里检查',
     noKey: 'spending-effort-with-jev：没有 TypeSafe API key，effort 建议已关闭。请在 /plugin 里填写。',
     stayed: (v: Verdict, cur: string) => `${v.kind === 'up' ? '⬆' : '⬇'} effort：${v.level} · 你选了 ${cur}`,
-    sending: (level: string, setting: string) => `· 正在用 ${level}（你的设置：${setting}）`,
+    sending: (level: string, setting: string) => `▶ 实际 ${level}（输入框显示 ${setting}）·`,
     question: (v: Verdict, cur: string) =>
       v.kind === 'up'
         ? `这像是 ${v.level} 档的活，当前是 ${cur}。要切到 ${v.level} 吗？`
@@ -426,6 +467,12 @@ export const WORDS = {
     header: 'Effort',
     switchTo: (level: string) => `切到 ${level}`,
     keep: (level: string) => `保持 ${level}`,
+    cardLine: (c: { current: string; rec: string | null; kind: string }) =>
+      c.kind === 'up' ? `需要 ${c.rec} · 当前 ${c.current}`
+      : c.kind === 'down' ? `${c.rec} 就够 · 当前 ${c.current}`
+      : c.kind === 'match' ? `适合 ${c.rec} · 当前 ${c.current}`
+      : c.kind === 'unsure' ? `可能是 ${c.rec} · 当前 ${c.current}`
+      : `当前 ${c.current}`,
     band: (o: { direction: 'up' | 'down'; level: string; from: string }) =>
       `✦ ${o.direction === 'up' ? '需要' : '够用：'} ${o.level} · 当前 ${o.from}`,
     close: '关闭',

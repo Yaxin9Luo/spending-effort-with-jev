@@ -49,6 +49,15 @@ export type Offer = {
   share: number
 }
 
+/** The latest verdict, drawn as a gauge above the prompt. */
+export type Card = {
+  /** The level the request ran on. */
+  current: string
+  /** Jev's level, when it names one. */
+  rec: Level | null
+  kind: string
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'spending-effort-with-jev': {
@@ -58,6 +67,7 @@ declare module 'claude-code' {
       /** The level the main loop last ran on, to notice the person changing it. */
       lastLevel: string | null
       offer: Offer | null
+      card: Card | null
       /** Set once the missing-key notice was shown this session. */
       warnedNoKey: boolean
     }

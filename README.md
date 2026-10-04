@@ -37,7 +37,7 @@ Paste your key when Claude Code asks; it's kept in secure storage, and the plugi
 
 ## What the lines mean
 
-The line shows in Claude Code's status area as soon as Claude's first request is about to go out. On a model without effort levels, or with a token budget instead of a level, there's nothing to compare, so no line shows (the message is still sent to Jev).
+The line shows in Claude Code's status area as soon as Claude's first request is about to go out, and above the prompt a small gauge shows it too: four pixel bars, low to max, the level Claude runs on solid and the one Jev names blinking (block bars in the terminal). On a model without effort levels, or with a token budget instead of a level, there's nothing to compare, so no line shows (the message is still sent to Jev).
 
 | Line | Meaning |
 |---|---|
@@ -48,7 +48,7 @@ The line shows in Claude Code's status area as soon as Claude's first request is
 | `○ effort: nothing to judge here · keep your level` | Jev found no task in the message (say, "run it" as your first message) and there's no conversation to size it from. |
 | `○ effort: go-ahead · keep your level` | A go-ahead ("ok", "continue") whose work couldn't be sized (see [How it works](#how-it-works)). |
 | `⬆ effort: high · you chose low` | You kept your level when this switch was offered; it isn't offered again from that level. |
-| `… · sending high (your setting: low)` | You switched here: Claude's requests go out on `high` while the setting under the input box stays `low`. Every line carries it while that lasts. |
+| `▶ high (bar says low) · …` | You switched here: Claude's requests go out on `high` while the setting under the input box stays `low`. Every line starts with it while that lasts. |
 | `⚠ effort: long run, fuzzy spec → have Claude interview you, then go max` | A long hands-off task with open questions (also a toast). More effort won't fix a wrong reading of the task; a few questions first will. |
 
 **"now low"** is the level Claude's request is about to run on: your setting, or the level you switched to here. The mod reads it from the request itself, so a switch you made a moment ago is never missed.
@@ -57,7 +57,7 @@ The number is how much of Jev's whole answer backs the line: for a switch, the s
 
 ## Switching
 
-- **A switch lasts for the session and applies from Claude's next step.** Claude Code has no way for a plugin to change your effort setting, so the mod rewrites the level on each request of the main conversation instead. The effort control under the input box keeps showing your setting; the status line says `sending high (your setting: low)` while the mod is rewriting. Subagents' requests are left alone.
+- **A switch lasts for the session and applies from Claude's next step.** Claude Code has no way for a plugin to change your effort setting, so the mod rewrites the level on each request of the main conversation instead. The effort control under the input box keeps showing your setting; the status line starts with `▶ high (bar says low)` while the mod is rewriting. Subagents' requests are left alone.
 - **Your own setting wins.** Run `/effort` (any level, including the one you had) or pick a different level under the input box, and the mod stops rewriting from the next request. Picking the level the control already shows changes nothing it can see, so use `/effort` for that. A switch also ends when the session restarts.
 - **Keep** remembers the direction: from the same level, a switch the same way isn't offered again, even if Jev moves between high and max; the status line just notes it. Once your level changes, it can be offered again. Closing the band or dismissing the dialog changes nothing and remembers nothing.
 - With the band, the switch can't touch the request already running; it applies from Claude's next one. With `ask_first`, the dialog comes before the first request, so the whole turn runs on the level you pick.
