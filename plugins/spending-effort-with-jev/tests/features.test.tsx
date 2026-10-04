@@ -172,7 +172,7 @@ describe('the ledger', () => {
 })
 
 describe('the band', () => {
-  test('beside the verdict: the cost of this turn and today, context, the 5-hour limit, subagents', { options: BASE }, async ($, on) => {
+  test('beside the verdict: the cost of this turn and today, and subagents; nothing of Claude Code\'s own usage', { options: BASE }, async ($, on) => {
     const w = world(on, { jev: [jev('low', 0.97)] })
     mock.clock(on)
     turns += 1
@@ -184,7 +184,8 @@ describe('the band', () => {
     w.cost.usd += 0.12
     const wide = await $.ui.mount({ plugin: 'spending-effort-with-jev', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 10, bodyColumns: 160 } as any })
     const text = JSON.stringify(await wide.drawn())
-    for (const fact of ['low fits · now low (0.97)', 'turn $0.120', 'today $0.120', 'context 0%', 'subagents low']) expect(text).toContain(fact)
+    for (const fact of ['low fits · now low (0.97)', 'turn $0.120', 'today $0.120', 'subagents low']) expect(text).toContain(fact)
+    for (const fact of ['context', 'limit']) expect(text).not.toContain(fact)
     await wide.unmount()
     const narrow = await $.ui.mount({ plugin: 'spending-effort-with-jev', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 10, bodyColumns: 60 } as any })
     expect(JSON.stringify(await narrow.drawn())).not.toContain('today')

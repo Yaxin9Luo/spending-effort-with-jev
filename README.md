@@ -64,7 +64,7 @@ The number is how much of Jev's whole answer backs the line: for a switch, the s
 
 ## Around the switch
 
-- **The band shows more than the verdict.** Beside the gauge and Jev's line: what this turn (or the last one) cost, today's total, how full the context is, the 5-hour limit, and the levels subagents got, as room allows.
+- **The band shows more than the verdict.** Beside the gauge and Jev's line: what this turn (or the last one) cost, today's total from the ledger, and the levels subagents got, as room allows.
 - **Ledger.** Every main-conversation turn is recorded with the level it ran on, Jev's level and its cost. The band's Ledger button (or `/effort-ledger`) opens a pane: cost per level, today and the last 7 days, and what following Jev would have changed, priced at your own averages per level.
 - **Subagents get their own level.** When Claude starts a subagent, Jev sizes its task: a lookup runs on low, a careful check on high (never max, which is yours to choose). The main conversation stays on your level.
 - **A mid-turn hint.** Once in a long high or max turn, the mod asks Jev whether what's left is mechanical (applying a decided change, running tests, writing the commit). If so, the band offers low for the rest of that turn only.

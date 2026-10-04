@@ -635,8 +635,9 @@ async function midTurnCheck($: EngineInterface, turnId: string, index: number, l
 }
 
 /**
- * The band's side facts, as room allows: what this turn and today cost, how
- * full the context is, the 5-hour limit, the levels subagents got.
+ * The band's side facts, as room allows: what this turn (or the last) and
+ * today cost, and the levels subagents got. Context and rate limits are
+ * Claude Code's own figures, left to the tools that show those.
  */
 async function bandFacts($: EngineInterface, s: Settings, columns: number): Promise<string[]> {
   const w = WORDS[s.l]
@@ -652,14 +653,11 @@ async function bandFacts($: EngineInterface, s: Settings, columns: number): Prom
     if (columns >= 70 && turnUsd !== null) facts.push(w.turnCost(usd(turnUsd)))
     else if (columns >= 70 && last !== undefined) facts.push(w.lastTurn(usd(last.usd)))
     if (columns >= 70) facts.push(w.today(usd(ledger.todayUsd + (turnUsd ?? 0))))
-    if (columns >= 100 && u.context.percent !== undefined) facts.push(w.context(Math.round(u.context.percent)))
-    const five = u.rateLimits.find(r => r.kind === 'five_hour')
-    if (columns >= 110 && five !== undefined) facts.push(w.limit(Math.round(five.percentUsed)))
   } catch {
     // No usage figures: the band still shows the verdict.
   }
   const subs = Object.values(await read($, agentLevels))
-  if (columns >= 130 && subs.length > 0) {
+  if (columns >= 100 && subs.length > 0) {
     const counts = LEVELS.map(lv => [lv, subs.filter(x => x === lv).length] as const).filter(([, n]) => n > 0)
     facts.push(w.subagents(counts.map(([lv, n]) => (n > 1 ? `${n}×${lv}` : lv)).join(' ')))
   }
