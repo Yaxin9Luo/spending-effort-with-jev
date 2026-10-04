@@ -599,6 +599,8 @@ async function acceptOffer($: EngineInterface, o: Offer, s: Settings) {
   // Not from o.setting: the person may have moved the setting since the offer.
   await update($, override, () => ({ level: o.level, base: null, turnId: o.turnId }))
   await update($, offer, () => null)
+  // The band now runs on the switched level: it fits, as after a switch in the dialog.
+  await update($, card, () => ({ current: o.level, rec: o.level as Level, kind: 'match', share: o.share }))
   $.ui.status(WORDS[s.l].switched(o.level))
   if (!o.isMidTurn) await tally($, o.direction, true)
   await log($, s, { event: 'offer', answer: 'switch', rec: o.level, from: o.from, setting: o.setting, midturn: o.isMidTurn === true })

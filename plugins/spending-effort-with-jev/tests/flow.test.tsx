@@ -85,6 +85,7 @@ function world(on: any, setup: Setup): World {
     return { value: undefined }
   })
   on('command.run', ($: any, e: any) => ({ text: `ran /${e.command} ${e.args}` }))
+  on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
   // The engine's own band is nothing, or another plugin's row when `below` is given.
   on('ui.render', { component: 'AbovePrompt' }, ($: any, e: any) => {
     const { Box, Text } = $.ui.resolve(e)
@@ -322,9 +323,12 @@ describe('the band (ask_first off)', () => {
       })
       expect((await band.find({ key: 'switch' }))?.text).toContain('high')
       await band.press({ key: 'switch' })
+      expect(await band.find({ text: /high fits · now high/ })).toBeDefined()
       await step($, 'low', 1)
       expect(w.sent).toEqual(['low', 'high'])
       expect((await band.find({ key: 'switch' }))).toBe(undefined) // the band is gone
+      await $.turn.complete({ reason: 'answer', answer: '', durationMs: 1, isAborted: false, turnId: `turn-${turns}` })
+      expect(await band.find({ text: /last message ran on high · back on low/ })).toBeDefined()
     })
 
     test(`keep holds back only the same message (${surface})`, { options: PLAIN }, async ($, on) => {
