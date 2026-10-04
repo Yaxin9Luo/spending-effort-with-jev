@@ -647,7 +647,8 @@ async function closeTurn($: EngineInterface, turnId: string, s: Settings) {
     await update($, override, () => null)
     const base = ov.base ?? undefined
     $.ui.status(WORDS[s.l].released(base))
-    if (base !== undefined) await update($, card, c => (c === null ? c : { ...c, current: base }))
+    // The verdict was for the message just done: say what it ran on, not that it "fits" the level now back.
+    if (base !== undefined) await update($, card, c => (c === null || c.current === base ? c : { current: base, rec: c.current as Level, kind: 'released' }))
   }
   await update($, offer, o => (o !== null && o.turnId === turnId ? null : o))
   if (note === null || note.turnId !== turnId) return

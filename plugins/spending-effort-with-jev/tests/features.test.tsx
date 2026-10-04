@@ -200,7 +200,9 @@ describe('a switch ends with its turn', () => {
     await turn($, w, 'fix the flaky integration test', 'low') // switched to high for this turn
     expect(w.statuses.at(-1)).toBe('○ effort: back on your setting, low')
     const band = await $.ui.mount({ plugin: 'spending-effort-with-jev', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100 } as any })
-    expect(JSON.stringify(await band.drawn())).toContain('now low')
+    const drawn = JSON.stringify(await band.drawn())
+    expect(drawn).toContain('last message ran on high · back on low')
+    expect(drawn).not.toContain('fits') // the verdict was for the message just done, not for low
   })
 })
 

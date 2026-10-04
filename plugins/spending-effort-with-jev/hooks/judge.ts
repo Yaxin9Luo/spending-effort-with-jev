@@ -478,6 +478,7 @@ export const WORDS = {
       : c.kind === 'down' ? `${c.rec} is enough · now ${c.current}`
       : c.kind === 'match' ? `${c.rec} fits · now ${c.current}`
       : c.kind === 'unsure' ? `maybe ${c.rec}, not sure · now ${c.current}`
+      : c.kind === 'released' ? `last message ran on ${c.rec} · back on ${c.current}`
       : `now ${c.current}`,
     midBand: (o: { level: string; from: string }) => `✦ rest of this turn looks mechanical · ${o.level} for it? · now ${o.from}`,
     subagent: (what: string, level: string) => `effort: subagent "${what}" on ${level}`,
@@ -529,6 +530,7 @@ export const WORDS = {
       : c.kind === 'down' ? `${c.rec} 就够 · 当前 ${c.current}`
       : c.kind === 'match' ? `适合 ${c.rec} · 当前 ${c.current}`
       : c.kind === 'unsure' ? `可能是 ${c.rec} · 当前 ${c.current}`
+      : c.kind === 'released' ? `上一条用了 ${c.rec} · 已回到 ${c.current}`
       : `当前 ${c.current}`,
     midBand: (o: { level: string; from: string }) => `✦ 这个回合剩下的像是机械活 · 改用 ${o.level}？· 当前 ${o.from}`,
     subagent: (what: string, level: string) => `effort：子代理“${what}”用 ${level}`,
