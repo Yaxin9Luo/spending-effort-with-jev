@@ -239,16 +239,25 @@ describe('ask_first', () => {
     expect(w.sent[2]).toBe('low') // the override is gone for good
   })
 
-  test('keep: no second question for the same direction from the same level', { options: ASK }, async ($, on) => {
-    const w = world(on, { jev: [jev('high', 0.97), jev('max', 0.95)], pick: 1 })
+  test('keep holds back only the same message sent again; another message is asked', { options: ASK }, async ($, on) => {
+    const w = world(on, { jev: [jev('high', 0.97)], pick: 1 })
     mock.clock(on)
     await send($, 'fix the flaky integration test', 'low')
     expect(w.asked.length).toBe(1)
-    expect(w.sent).toEqual(['low'])
-    await send($, 'now audit the whole module', 'low') // Jev moved to max: same direction
+    await send($, 'fix the flaky integration test', 'low') // the same message again: not asked
     expect(w.asked.length).toBe(1)
-    expect(w.sent).toEqual(['low', 'low'])
-    expect(w.statuses[w.statuses.length - 1]).toContain('you chose low')
+    expect(w.statuses.at(-1)).toContain('you chose low')
+    await send($, 'now audit the whole module', 'low') // another task: asked
+    expect(w.asked.length).toBe(2)
+    expect(w.sent).toEqual(['low', 'low', 'low'])
+  })
+
+  test('a go-ahead is asked again even in the same words', { options: ASK }, async ($, on) => {
+    const w = world(on, { rows: [{ role: 'assistant', text: 'Plan: rewrite the scheduler and verify it. Start?' }], classify: 'high', pick: 1 })
+    mock.clock(on)
+    await send($, '继续', 'low')
+    await send($, '继续', 'low')
+    expect(w.asked.length).toBe(2)
   })
 
   test('a turned-down switch is forgotten once the level changes', { options: ASK }, async ($, on) => {
@@ -316,7 +325,7 @@ describe('the band (ask_first off)', () => {
       expect((await band.find({ key: 'switch' }))).toBe(undefined) // the band is gone
     })
 
-    test(`keep stops offering that direction (${surface})`, { options: PLAIN }, async ($, on) => {
+    test(`keep holds back only the same message (${surface})`, { options: PLAIN }, async ($, on) => {
       const w = world(on, { jev: [jev('high', 0.97), jev('max', 0.95)] })
       mock.clock(on)
       await send($, 'fix the flaky integration test', 'low')
@@ -327,9 +336,11 @@ describe('the band (ask_first off)', () => {
         props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100 } as any,
       })
       await band.press({ key: 'keep' })
-      await send($, 'now audit the whole module', 'low')
+      await send($, 'fix the flaky integration test', 'low') // the same message again: no offer
       expect(await band.find({ key: 'switch' })).toBe(undefined)
-      expect(w.sent).toEqual(['low', 'low'])
+      await send($, 'now audit the whole module', 'low') // another task: offered
+      expect(await band.find({ key: 'switch' })).toBeDefined()
+      expect(w.sent).toEqual(['low', 'low', 'low'])
     })
   }
 

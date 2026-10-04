@@ -17,6 +17,8 @@ export type Pending = {
   answers: Answers | null
   /** The message was a go-ahead: the work it starts was planned earlier. */
   isGoAhead: boolean
+  /** What the person typed, to know the same message sent again. In memory only. */
+  text: string
   /** Why there is no answer: Jev failed, or refused the key. */
   failure?: 'error' | 'badKey'
   /** When it was judged, epoch ms. */
@@ -38,7 +40,8 @@ export type Override = {
 }
 
 /** Switches the person turned down, by direction: the level they chose to stay on. */
-export type Declined = { up?: string; down?: string }
+/** The last switch turned down: by which message, and the level kept per direction. Only that same message, sent again, isn't asked again. */
+export type Declined = { text: string; up?: string; down?: string } | null
 
 /** A switch offered in the band above the prompt (ask_first off). */
 export type Offer = {
@@ -49,6 +52,8 @@ export type Offer = {
   /** The session's own setting at the time. */
   setting: string
   share: number
+  /** The message it was offered for. */
+  text: string
   /** The turn it was offered in: it goes, unanswered, when that turn ends. */
   turnId: string
   /** The mid-turn hint (the rest of a long turn looks mechanical), not a verdict on a message. */

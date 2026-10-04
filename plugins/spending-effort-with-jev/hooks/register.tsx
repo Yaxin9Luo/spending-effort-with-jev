@@ -41,7 +41,7 @@ import { switchMins, tallied } from './tuning'
 
 const pending = atom({ plugin: 'spending-effort-with-jev', key: 'pending' } as const, null as Pending | null)
 const override = atom({ plugin: 'spending-effort-with-jev', key: 'override' } as const, null as Override | null)
-const declined = atom({ plugin: 'spending-effort-with-jev', key: 'declined' } as const, {} as Declined)
+const declined = atom({ plugin: 'spending-effort-with-jev', key: 'declined' } as const, null as Declined)
 const lastLevel = atom({ plugin: 'spending-effort-with-jev', key: 'lastLevel' } as const, null as string | null)
 const offer = atom({ plugin: 'spending-effort-with-jev', key: 'offer' } as const, null as Offer | null)
 const card = atom({ plugin: 'spending-effort-with-jev', key: 'card' } as const, null as Card | null)
@@ -280,7 +280,7 @@ async function judge($: EngineInterface, text: string, s: Settings, order: { lat
     if (isGoAhead(text)) {
       const level = await sizeGoAhead($, rows, text)
       if (isStale()) return []
-      await update($, pending, () => ({ answers: level ? certain(level) : null, isGoAhead: true, t }))
+      await update($, pending, () => ({ answers: level ? certain(level) : null, isGoAhead: true, text, t }))
       await log($, s, { event: 'prompt', goAhead: 'exact', sized: level, message_chars: text.length })
       return []
     }
@@ -297,7 +297,7 @@ async function judge($: EngineInterface, text: string, s: Settings, order: { lat
       await log($, s, jevRecord(answers, text, recent, {}))
     }
     if (isStale()) return []
-    await update($, pending, () => ({ answers, isGoAhead: goAhead, t }))
+    await update($, pending, () => ({ answers, isGoAhead: goAhead, text, t }))
     if (s.interview && answers !== null && answers.handoff_ambiguous.noul >= AMBIGUITY_MIN) {
       return await interview($, text, recent, s)
     }
@@ -305,7 +305,7 @@ async function judge($: EngineInterface, text: string, s: Settings, order: { lat
   } catch (err) {
     const status = err instanceof HttpStatus ? err.status : undefined
     const failure: Pending['failure'] = status === 401 || status === 403 ? 'badKey' : 'error'
-    if (!isStale()) await update($, pending, () => ({ answers: null, isGoAhead: false, failure, t }))
+    if (!isStale()) await update($, pending, () => ({ answers: null, isGoAhead: false, text, failure, t }))
     // The kind of failure only: a parser's message can quote the response.
     await log($, s, { event: 'error', error: err instanceof Error ? err.name : 'unknown', status })
     return []
@@ -461,7 +461,7 @@ async function levelFor($: EngineInterface, setting: unknown, s: Settings, turnI
   const level = ov !== null && ov.base === setting ? ov.level : setting
   if ((await read($, lastLevel)) !== setting) {
     // A turned-down switch holds only while the setting it was turned down on does.
-    await update($, declined, () => ({}))
+    await update($, declined, () => null)
     await update($, lastLevel, () => setting)
   }
   const p = await read($, pending)
@@ -483,7 +483,7 @@ async function decide($: EngineInterface, p: Pending, setting: string, level: st
     line = p.isGoAhead ? w.goAhead : w.unclear
   } else {
     const mins = switchMins(await readTally($), s.selfTune)
-    ;[line, chosen, isNews] = await weigh($, p.answers, p.isGoAhead, setting, level, mins, s, turnId)
+    ;[line, chosen, isNews] = await weigh($, p.answers, p.isGoAhead, p.text, setting, level, mins, s, turnId)
     const v = verdict(p.answers, chosen, mins)
     drawn = { current: chosen, rec: v.level, kind: v.kind, share: v.share }
     const named = verdict(p.answers, null).level
@@ -503,6 +503,7 @@ async function weigh(
   $: EngineInterface,
   answers: Answers,
   isGoAhead: boolean,
+  text: string,
   setting: string,
   level: string,
   mins: { up: number; down: number },
@@ -519,8 +520,10 @@ async function weigh(
   if (isSwitch) {
     const dir = v.kind as 'up' | 'down'
     const target = v.level as Level
+    // Each message is its own task: a switch turned down holds back only the
+    // same message sent again (never a go-ahead, whose work changes each time).
     const turnedDown = await read($, declined)
-    if (turnedDown[dir] === level) {
+    if (!isGoAhead && turnedDown !== null && turnedDown.text === text && turnedDown[dir] === level) {
       line = w.stayed(v, level)
       answer = 'declined-before'
     } else if (s.askFirst) {
@@ -538,12 +541,12 @@ async function weigh(
         // The share that backed the switch, not a made-up certainty.
         line = w.match({ ...v, kind: 'match', level: target }, chosen)
       } else if (answer === 'keep') {
-        await update($, declined, d => ({ ...d, [dir]: level }))
+        await update($, declined, () => ({ text, [dir]: level }))
         line = w.stayed(v, level)
       }
       if (answer === 'switch' || answer === 'keep') await tally($, dir, answer === 'switch')
     } else {
-      await update($, offer, () => ({ direction: dir, level: target, from: level, setting, share: v.share, turnId }))
+      await update($, offer, () => ({ direction: dir, level: target, from: level, setting, share: v.share, text, turnId }))
       answer = 'offered'
     }
   }
@@ -579,7 +582,7 @@ async function acceptOffer($: EngineInterface, o: Offer, s: Settings) {
 
 async function declineOffer($: EngineInterface, o: Offer, s: Settings) {
   if (!o.isMidTurn) {
-    await update($, declined, d => ({ ...d, [o.direction]: o.from }))
+    await update($, declined, () => ({ text: o.text, [o.direction]: o.from }))
     await tally($, o.direction, false)
   }
   await update($, offer, () => null)
@@ -649,7 +652,7 @@ async function midTurnCheck($: EngineInterface, turnId: string, index: number, l
     const p = answers?.rest_is_mechanical?.noul
     await log($, s, { event: 'midturn', level, mechanical: typeof p === 'number' ? round(p) : null, step: index })
     if (typeof p !== 'number' || p < MID_TURN_MIN) return
-    const hint: Offer = { direction: 'down', level: 'low', from: level, setting, share: p, turnId, isMidTurn: true }
+    const hint: Offer = { direction: 'down', level: 'low', from: level, setting, share: p, text: '', turnId, isMidTurn: true }
     await update($, offer, () => hint)
   } catch {
     // No hint this time.

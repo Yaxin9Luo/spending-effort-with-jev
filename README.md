@@ -47,7 +47,7 @@ The line shows in Claude Code's status area as soon as Claude's first request is
 | `○ effort: maybe high (0.55), not sure · keep your level` | Jev's vote is split between staying and switching, so no advice. |
 | `○ effort: nothing to judge here · keep your level` | Jev found no task in the message (say, "run it" as your first message) and there's no conversation to size it from. |
 | `○ effort: go-ahead · keep your level` | A go-ahead ("ok", "continue") whose work couldn't be sized (see [How it works](#how-it-works)). |
-| `⬆ effort: high · you chose low` | You kept your level when this switch was offered; it isn't offered again from that level. |
+| `⬆ effort: high · you chose low` | You kept your level when this same message was offered a switch; it isn't asked twice. |
 | `▶ high (bar says low) · …` | You switched here: Claude's requests go out on `high` while the setting under the input box stays `low`. Every line starts with it while that lasts. |
 | `⚠ effort: long run, fuzzy spec → have Claude interview you, then go max` | A long hands-off task with open questions (also a toast). More effort won't fix a wrong reading of the task; a few questions first will. |
 
@@ -59,7 +59,7 @@ The number is how much of Jev's whole answer backs the line: for a switch, the s
 
 - **A switch holds for that message's turn only.** Claude Code has no way for a plugin to change your effort setting, so the mod rewrites the level on the requests of that turn instead. The effort control under the input box keeps showing your setting; the status line starts with `▶ high (bar says low)` while the mod is rewriting, and says `back on your setting` when the turn ends. Your next message is judged against the setting again, so what the control shows is what runs unless you just said otherwise.
 - **Your own setting wins.** Run `/effort` or pick a different level under the input box, and the mod stops rewriting from the next request.
-- **Keep** remembers the direction: from the same level, a switch the same way isn't offered again, even if Jev moves between high and max; the status line just notes it. Once your level changes, it can be offered again. Closing the band or dismissing the dialog changes nothing and remembers nothing.
+- **Keep** answers that message only. Each message is its own task, so the next one is judged and asked afresh; only the same message sent again isn't asked again (a go-ahead like "continue" always is: its work changes each time). Closing the band or dismissing the dialog changes nothing and remembers nothing.
 - With the band, the switch can't touch the request already running; it applies from Claude's next one. With `ask_first`, the dialog comes before the first request, so the whole turn runs on the level you pick.
 
 ## Around the switch
