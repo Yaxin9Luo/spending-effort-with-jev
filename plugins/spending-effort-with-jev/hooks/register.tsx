@@ -186,10 +186,13 @@ export const register: Register = (on, options) => {
   // The digits work only while Claude does: a bare digit typed in an empty
   // prompt presses a band Button, and once the turn is over that digit is
   // more likely an answer to Claude ("1"). Clicking still works then.
+  // The band holds one tree, and plugins draw it in a chain: the row goes on
+  // top of whatever the plugins beneath drew, never in its place.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const o = await read($, offer)
     const c = await read($, card)
     if ((o === null && c === null) || e.props.hasSurvey) return next(e)
+    const below = await next(e)
     const w = WORDS[s.l]
     // Working: "1: Switch to high". After the turn: "[ Switch to high ]", no digit.
     const look = (d: string) => (e.props.isWorking ? { hotkey: d, plain: true as const } : {})
@@ -213,17 +216,20 @@ export const register: Register = (on, options) => {
     const words = (o ? (o.isMidTurn ? w.midBand(o) : w.band(o)) : c ? w.cardLine(c) : '') + share
     const facts = await bandFacts($, s, e.props.bodyColumns)
     return (
-      <Box flexDirection="row">
-        {gauge}
-        <Text>  {words}  </Text>
-        {facts.length > 0 ? <Text dimColor>│ {facts.join(' · ')}  </Text> : null}
-        {o ? <Button key="switch" {...look('1')} label={w.switchTo(o.level)} onPress={() => acceptOffer($, o, s)} /> : null}
-        {o ? <Text>  </Text> : null}
-        {o ? <Button key="keep" {...look('2')} label={w.keep(o.from)} onPress={() => declineOffer($, o, s)} /> : null}
-        {o ? <Text>  </Text> : null}
-        {o ? null : <Button key="ledger" label={w.ledger} onPress={() => openLedger($, s)} />}
-        {o ? null : <Text>  </Text>}
-        <Button key="close" {...(o ? look('0') : {})} role="dismiss" label={w.close} onPress={() => closeOffer($)} />
+      <Box flexDirection="column">
+        <Box flexDirection="row">
+          {gauge}
+          <Text>  {words}  </Text>
+          {facts.length > 0 ? <Text dimColor>│ {facts.join(' · ')}  </Text> : null}
+          {o ? <Button key="switch" {...look('1')} label={w.switchTo(o.level)} onPress={() => acceptOffer($, o, s)} /> : null}
+          {o ? <Text>  </Text> : null}
+          {o ? <Button key="keep" {...look('2')} label={w.keep(o.from)} onPress={() => declineOffer($, o, s)} /> : null}
+          {o ? <Text>  </Text> : null}
+          {o ? null : <Button key="ledger" label={w.ledger} onPress={() => openLedger($, s)} />}
+          {o ? null : <Text>  </Text>}
+          <Button key="close" {...(o ? look('0') : {})} role="dismiss" label={w.close} onPress={() => closeOffer($)} />
+        </Box>
+        {below ?? null}
       </Box>
     )
   })

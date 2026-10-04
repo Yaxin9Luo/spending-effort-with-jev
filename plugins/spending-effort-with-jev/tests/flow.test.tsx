@@ -26,6 +26,8 @@ type Setup = {
   /** Which option to pick in the effort dialog, by its position (0 switch, 1 keep), dismiss it, or type an answer. */
   pick?: number | 'dismiss' | { other: string }
   home?: string
+  /** What the plugins beneath draw in the band; nothing by default. */
+  below?: string
 }
 
 /** A Jev answer with most of its weight on `choice`. */
@@ -83,10 +85,10 @@ function world(on: any, setup: Setup): World {
     return { value: undefined }
   })
   on('command.run', ($: any, e: any) => ({ text: `ran /${e.command} ${e.args}` }))
-  // The engine's own band is nothing; the plugin draws over it.
+  // The engine's own band is nothing, or another plugin's row when `below` is given.
   on('ui.render', { component: 'AbovePrompt' }, ($: any, e: any) => {
-    const { Box } = $.ui.resolve(e)
-    return <Box />
+    const { Box, Text } = $.ui.resolve(e)
+    return setup.below === undefined ? <Box /> : <Text key="below">{setup.below}</Text>
   })
   on('turn.step', async function* ($: any, e: any) {
     w.sent.push(e.effort)
@@ -402,6 +404,25 @@ describe('the band (ask_first off)', () => {
       await send($, 'fix the next flaky test', 'high')
     }
   })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`stacks on top of what the plugins beneath draw (${surface})`, { options: PLAIN }, async ($, on) => {
+      world(on, { jev: [jev('high', 0.97)], below: 'context 42%' })
+      mock.clock(on)
+      await send($, 'fix the flaky integration test', 'low')
+      const band = await $.ui.mount({
+        plugin: 'spending-effort-with-jev',
+        surface,
+        component: 'AbovePrompt',
+        props: { hasSurvey: false, isWorking: true, maxRows: 10, bodyColumns: 100 } as any,
+      })
+      expect(await band.find({ key: 'switch' })).toBeDefined()
+      expect(await band.find({ text: 'context 42%' })).toBeDefined()
+      await band.press({ key: 'close' }) // with nothing of its own to show, it passes the band on
+      expect(await band.find({ key: 'switch' })).toBe(undefined)
+      expect(await band.find({ text: 'context 42%' })).toBeDefined()
+    })
+  }
 
   test('yields to a survey', { options: PLAIN }, async ($, on) => {
     world(on, { jev: [jev('high', 0.97)] })
