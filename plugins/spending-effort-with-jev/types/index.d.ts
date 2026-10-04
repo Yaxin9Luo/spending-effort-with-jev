@@ -75,9 +75,10 @@ export type LedgerTurn = {
   level: string
   /** Jev's level for the message that started it, if it named one. */
   rec: string | null
-  usd: number
-  out: number
 }
+
+/** Jev's usage on one day, as its answers report it. Kept across sessions. */
+export type JevDay = { day: number; calls: number; input: number; output: number }
 
 /** The running turn's bookkeeping for the ledger and the mid-turn check. */
 export type TurnNote = {
@@ -86,9 +87,6 @@ export type TurnNote = {
   task: string
   rec: string | null
   level: string | null
-  out: number
-  /** Cost so far when the turn started, from the session's /cost. */
-  usdAtStart: number | null
   /** The steps so far, newest last: the tools each called and the end of what it said. */
   steps: Array<{ tools: string[]; said: string }>
   isChecked: boolean

@@ -4,7 +4,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 
 import { switchMins, tallied } from '../hooks/tuning'
-import { summary } from '../hooks/ledger'
+import { counted, jevUsd, summary } from '../hooks/ledger'
 
 type World = {
   sent: Array<{ effort: unknown; agentId?: string }>
@@ -64,7 +64,7 @@ function world(on: any, setup: Setup): World {
     }
     const answer = answers[Math.min(call, answers.length - 1)]
     call += 1
-    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ answers: answer }) } }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ answers: answer, usage: { input_tokens: 10_000, output_tokens: 20 } }) } }
   })
   on('model.complete', () => ({ value: { isAnswered: true, text: setup.drafted ?? '', usage: {} } }))
   on('tool.call', { tool: 'AskUserQuestion' }, ($: any, e: any) => {
@@ -133,16 +133,16 @@ const ASK = { ...BASE, ask_first: true }
 const PANE = { plugin: 'spending-effort-with-jev', component: 'Pane', requestId: 'effort-ledger', props: {} as any } as const
 
 describe('the ledger', () => {
-  test('each turn adds a row priced from /cost, and the pane sums them', { options: ASK }, async ($, on) => {
+  test("Jev's API cost from the usage it reports, and each turn's level next to Jev's", { options: ASK }, async ($, on) => {
     const w = world(on, { jev: [jev('high', 0.97), jev('low', 0.97)], answers: [0, 1] })
     mock.clock(on)
-    await turn($, w, 'fix the flaky integration test', 'low', 0.4) // switched to high
-    await turn($, w, 'what does this flag do?', 'low', 0.05) // Jev: low, but the switch holds: kept high
+    await turn($, w, 'fix the flaky integration test', 'low') // switched to high
+    await turn($, w, 'what does this flag do?', 'low') // Jev: low, but the switch holds: kept high
     for (const surface of ['terminal', 'desktop'] as const) {
       const pane = await $.ui.mount({ ...PANE, surface })
-      expect((await pane.find({ text: /today \$0\.450/ })) !== undefined).toBe(true)
+      expect((await pane.find({ text: /Jev API cost: today \$0\.0008 · last 7 days \$0\.0008 \(2 calls\)/ })) !== undefined).toBe(true)
       expect((await pane.find({ text: /^high\s+2 turns/ })) !== undefined).toBe(true)
-      expect((await pane.find({ text: /Jev named another level on 1 turn\./ })) !== undefined).toBe(true)
+      expect((await pane.find({ text: /Jev named a level on 2 turns; 1 ran on it\./ })) !== undefined).toBe(true)
       if (surface === 'desktop') expect(await pane.find({ type: 'Svg' })).toBeDefined()
       await pane.unmount()
     }
@@ -157,22 +157,22 @@ describe('the ledger', () => {
     await band.unmount()
   })
 
-  test('following Jev is priced at your own averages', () => {
-    const now = 10_000_000_000
-    const rows = [
-      { t: now, level: 'high', rec: 'high', usd: 1, out: 0 },
-      { t: now, level: 'low', rec: 'low', usd: 0.1, out: 0 },
-      { t: now, level: 'high', rec: 'low', usd: 1, out: 0 }, // would have cost 0.1 on low
-    ]
-    const sum = summary(rows, now)
-    expect(sum.disagreed).toBe(1)
-    expect(sum.priced).toBe(1)
-    expect(Math.round(sum.delta * 100) / 100).toBe(-0.9)
+  test("Jev's cost is input tokens at its list price; days add up, old days drop", () => {
+    expect(jevUsd(1_000_000, 50_000)).toBe(0.042)
+    const day = 86_400_000
+    let days = counted(null, 100 * day, 300, 20)
+    days = counted(days, 100 * day + 5, 700, 20)
+    days = counted(days, 99 * day, 1000, 0)
+    const sum = summary([{ t: 0, level: 'xhigh', rec: 'max' }], days, 100 * day + 10)
+    expect([sum.todayCalls, sum.weekCalls]).toEqual([2, 3])
+    expect(sum.todayUsd).toBe(jevUsd(1000, 40))
+    expect([sum.judged, sum.followed]).toEqual([1, 1]) // xhigh counts as high or max
+    expect(counted(days, 300 * day, 1, 1).length).toBe(1)
   })
 })
 
 describe('the band', () => {
-  test('beside the verdict: the cost of this turn and today, and subagents; nothing of Claude Code\'s own usage', { options: BASE }, async ($, on) => {
+  test("beside the verdict: Jev's API cost today and the subagents' levels, nothing of Claude's spending", { options: BASE }, async ($, on) => {
     const w = world(on, { jev: [jev('low', 0.97)] })
     mock.clock(on)
     turns += 1
@@ -184,11 +184,11 @@ describe('the band', () => {
     w.cost.usd += 0.12
     const wide = await $.ui.mount({ plugin: 'spending-effort-with-jev', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 10, bodyColumns: 160 } as any })
     const text = JSON.stringify(await wide.drawn())
-    for (const fact of ['low fits · now low (0.97)', 'turn $0.120', 'today $0.120', 'subagents low']) expect(text).toContain(fact)
-    for (const fact of ['context', 'limit']) expect(text).not.toContain(fact)
+    for (const fact of ['low fits · now low (0.97)', 'Jev API cost today $0.0008', 'subagents low']) expect(text).toContain(fact)
+    for (const fact of ['context', 'limit', 'turn $']) expect(text).not.toContain(fact)
     await wide.unmount()
     const narrow = await $.ui.mount({ plugin: 'spending-effort-with-jev', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 10, bodyColumns: 60 } as any })
-    expect(JSON.stringify(await narrow.drawn())).not.toContain('today')
+    expect(JSON.stringify(await narrow.drawn())).not.toContain('Jev API cost')
   })
 })
 

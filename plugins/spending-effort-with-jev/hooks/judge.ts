@@ -482,20 +482,15 @@ export const WORDS = {
     midBand: (o: { level: string; from: string }) => `✦ rest of this turn looks mechanical · ${o.level} for it? · now ${o.from}`,
     subagent: (what: string, level: string) => `effort: subagent "${what}" on ${level}`,
     ledger: 'Ledger',
-    turnCost: (usd: string) => `turn ${usd}`,
-    lastTurn: (usd: string) => `last turn ${usd}`,
-    today: (usd: string) => `today ${usd}`,
+    jevCost: (usd: string) => `Jev API cost today ${usd}`,
     subagents: (levels: string) => `subagents ${levels}`,
     ledgerTitle: 'Effort ledger',
     ledgerOpened: 'Effort ledger opened.',
-    ledgerEmpty: 'No turns recorded yet. Each main-conversation turn adds a row once it ends.',
-    ledgerHead: (today: string, week: string) => `today ${today} · last 7 days ${week}`,
-    ledgerRow: (level: string, turns: number, usd: string, avg: string, out: string) => `${level.padEnd(7)} ${String(turns).padStart(5)} turns  ${usd.padStart(8)}  ${avg.padStart(8)}/turn  ${out.padStart(7)} out`,
-    ledgerJev: (n: number, priced: number, delta: string) =>
-      n === 0
-        ? 'Every turn ran on the level Jev named.'
-        : `Jev named another level on ${n} turn${n === 1 ? '' : 's'}. ` +
-          (priced === 0 ? 'Not enough turns on those levels yet to price following it.' : `Following it on ${priced} of them, at your own averages: ${delta}.`),
+    ledgerEmpty: 'Nothing recorded yet: each Jev answer and each main-conversation turn adds to it.',
+    ledgerHead: (today: string, week: string, calls: number) => `Jev API cost: today ${today} · last 7 days ${week} (${calls} calls)`,
+    ledgerRow: (level: string, turns: number) => `${level.padEnd(7)} ${String(turns).padStart(5)} turns`,
+    ledgerJev: (judged: number, followed: number) =>
+      judged === 0 ? 'No turn Jev judged yet.' : `Jev named a level on ${judged} turn${judged === 1 ? '' : 's'}; ${followed} ran on it.`,
     specHeader: 'Spec',
     leaveIt: 'Up to Claude',
     skipRest: 'Start now',
@@ -537,19 +532,15 @@ export const WORDS = {
     midBand: (o: { level: string; from: string }) => `✦ 这个回合剩下的像是机械活 · 改用 ${o.level}？· 当前 ${o.from}`,
     subagent: (what: string, level: string) => `effort：子代理“${what}”用 ${level}`,
     ledger: '账本',
-    turnCost: (usd: string) => `本回合 ${usd}`,
-    lastTurn: (usd: string) => `上一回合 ${usd}`,
-    today: (usd: string) => `今天 ${usd}`,
+    jevCost: (usd: string) => `Jev API 今日费用 ${usd}`,
     subagents: (levels: string) => `子代理 ${levels}`,
     ledgerTitle: 'Effort 账本',
     ledgerOpened: '已打开 effort 账本。',
-    ledgerEmpty: '还没有记录。主对话每个回合结束后会加一行。',
-    ledgerHead: (today: string, week: string) => `今天 ${today} · 最近 7 天 ${week}`,
-    ledgerRow: (level: string, turns: number, usd: string, avg: string, out: string) => `${level.padEnd(7)} ${String(turns).padStart(5)} 回合  ${usd.padStart(8)}  ${avg.padStart(8)}/回合  ${out.padStart(7)} 输出`,
-    ledgerJev: (n: number, priced: number, delta: string) =>
-      n === 0
-        ? '每个回合都跑在 Jev 建议的档位上。'
-        : `有 ${n} 个回合 Jev 建议了别的档位。` + (priced === 0 ? '那些档位的记录还不够，暂时算不出照 Jev 跑的差额。' : `按你自己的均价，其中 ${priced} 个照 Jev 跑的差额：${delta}。`),
+    ledgerEmpty: '还没有记录：每次 Jev 回答、主对话每个回合结束都会记一笔。',
+    ledgerHead: (today: string, week: string, calls: number) => `Jev API 费用：今天 ${today} · 最近 7 天 ${week}（${calls} 次调用）`,
+    ledgerRow: (level: string, turns: number) => `${level.padEnd(7)} ${String(turns).padStart(5)} 回合`,
+    ledgerJev: (judged: number, followed: number) =>
+      judged === 0 ? '还没有 Jev 判断过的回合。' : `Jev 给出档位的回合有 ${judged} 个，其中 ${followed} 个按它的档位跑了。`,
     specHeader: '需求',
     leaveIt: '交给 Claude',
     skipRest: '直接开始',

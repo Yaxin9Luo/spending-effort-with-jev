@@ -64,8 +64,8 @@ The number is how much of Jev's whole answer backs the line: for a switch, the s
 
 ## Around the switch
 
-- **The band shows more than the verdict.** Beside the gauge and Jev's line: what this turn (or the last one) cost, today's total from the ledger, and the levels subagents got, as room allows.
-- **Ledger.** Every main-conversation turn is recorded with the level it ran on, Jev's level and its cost. The band's Ledger button (or `/effort-ledger`) opens a pane: cost per level, today and the last 7 days, and what following Jev would have changed, priced at your own averages per level.
+- **The band shows more than the verdict.** Beside the gauge and Jev's line: what Jev's API cost today (from the token usage each Jev answer reports, at TypeSafe's list price: $0.042 per million input tokens, output free) and the levels subagents got, as room allows. Claude's own spending isn't shown: that's not this plugin's to count.
+- **Ledger.** The band's Ledger button (or `/effort-ledger`) opens a pane: Jev's API cost and number of calls today and over the last 7 days, the turns that ran on each level, and on how many of the turns Jev judged you ran its level.
 - **Subagents get their own level.** When Claude starts a subagent, Jev sizes its task: a lookup runs on low, a careful check on high (never max, which is yours to choose). The main conversation stays on your level.
 - **A mid-turn hint.** Once in a long high or max turn, the mod asks Jev whether what's left is mechanical (applying a decided change, running tests, writing the commit). If so, the band offers low for the rest of that turn only.
 - **An interview before long fuzzy runs.** When a message hands Claude a long run with important things left open, two or three questions come first (drafted by the small model from your message); your answers go to Claude with it. "Up to Claude" skips a question, "Start now" the rest.

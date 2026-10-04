@@ -9,7 +9,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionMessage } from 'claude-code'
 
-import type { Answers, Card, Declined, LedgerTurn, Level, Offer, Override, Pending, Tally, TurnNote } from '../types'
+import type { Answers, Card, Declined, JevDay, LedgerTurn, Level, Offer, Override, Pending, Tally, TurnNote } from '../types'
 import {
   AMBIGUITY_MIN,
   JEV_URL,
@@ -36,7 +36,7 @@ import {
   verdict,
 } from './judge'
 import type { Lang, Turn, Verdict } from './judge'
-import { added, ledgerSvg, summary, tokens, usd } from './ledger'
+import { added, counted, ledgerSvg, summary, usd } from './ledger'
 import { switchMins, tallied } from './tuning'
 
 const pending = atom({ plugin: 'spending-effort-with-jev', key: 'pending' } as const, null as Pending | null)
@@ -152,7 +152,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId === undefined) await closeTurn($, e.turnId, e.usage?.output_tokens ?? 0)
+    if (e.agentId === undefined) await closeTurn($, e.turnId)
     return result
   })
 
@@ -234,20 +234,20 @@ export const register: Register = (on, options) => {
     const w = WORDS[s.l]
     const ui = $.ui.resolve(e)
     const { Box, Text } = ui
-    const sum = summary(await readLedger($), await $.clock.now())
-    if (sum.rows.length === 0) return <Text dimColor>{w.ledgerEmpty}</Text>
+    const sum = summary(await readLedger($), await readJevDays($), await $.clock.now())
+    if (sum.rows.length === 0 && sum.weekCalls === 0) return <Text dimColor>{w.ledgerEmpty}</Text>
     return (
       <Box flexDirection="column">
         <Text bold color="#D97757">
-          {w.ledgerHead(usd(sum.todayUsd), usd(sum.weekUsd))}
+          {w.ledgerHead(usd(sum.todayUsd), usd(sum.weekUsd), sum.weekCalls)}
         </Text>
         {e.surface !== 'terminal' && 'Svg' in ui && ui.Svg ? (
-          <ui.Svg key="chart" source={ledgerSvg(sum.rows)} alt="cost per effort level" isInteractive />
+          <ui.Svg key="chart" source={ledgerSvg(sum.rows)} alt="turns per effort level" isInteractive />
         ) : null}
         {sum.rows.map(r => (
-          <Text>{w.ledgerRow(r.level, r.turns, usd(r.usd), usd(r.turns > 0 ? r.usd / r.turns : 0), tokens(r.out))}</Text>
+          <Text>{w.ledgerRow(r.level, r.turns)}</Text>
         ))}
-        <Text dimColor>{w.ledgerJev(sum.disagreed, sum.priced, usd(sum.delta))}</Text>
+        <Text dimColor>{w.ledgerJev(sum.judged, sum.followed)}</Text>
       </Box>
     )
   })
@@ -329,7 +329,21 @@ async function jevCall($: EngineInterface, key: string, body: unknown): Promise<
     }),
   )
   if (!response.ok) throw new HttpStatus(response.status)
-  return JSON.parse(response.text) as { answers?: unknown }
+  const parsed = JSON.parse(response.text) as { answers?: unknown; usage?: { input_tokens?: unknown; output_tokens?: unknown } }
+  await countJev($, parsed.usage)
+  return parsed
+}
+
+/** Jev's usage as its answer reports it, added to today's count. */
+async function countJev($: EngineInterface, used: { input_tokens?: unknown; output_tokens?: unknown } | undefined) {
+  const input = typeof used?.input_tokens === 'number' ? used.input_tokens : 0
+  const output = typeof used?.output_tokens === 'number' ? used.output_tokens : 0
+  try {
+    await $.store.set('jev', counted(await readJevDays($), await $.clock.now(), input, output))
+    await update($, ledgerTick, n => n + 1)
+  } catch {
+    // Uncounted is fine.
+  }
 }
 
 /** A go-ahead's work is in the conversation, not in its words: a small model sizes it. */
@@ -580,8 +594,7 @@ async function openTurn($: EngineInterface, turnId: string, index: number) {
   if (note !== null && index > 0) return // a note for another turn still open: leave it to its turn.complete
   const begun = await read($, started)
   const task = begun !== null && begun.turnId === turnId ? begun.text : ''
-  const usdAtStart = await costNow($)
-  await update($, turn, () => ({ turnId, task, rec: null, level: null, out: 0, usdAtStart, steps: [], isChecked: false }))
+  await update($, turn, () => ({ turnId, task, rec: null, level: null, steps: [], isChecked: false }))
 }
 
 async function noteStep($: EngineInterface, turnId: string, level: string | null, said: string, tools: string[]) {
@@ -593,7 +606,7 @@ async function noteStep($: EngineInterface, turnId: string, level: string | null
 }
 
 /** The turn ended: one ledger row, and a switch made for this turn alone ends with it. */
-async function closeTurn($: EngineInterface, turnId: string, out: number) {
+async function closeTurn($: EngineInterface, turnId: string) {
   const note = await read($, turn)
   const ov = await read($, override)
   if (ov !== null && ov.turnId === turnId) await update($, override, () => null)
@@ -601,9 +614,7 @@ async function closeTurn($: EngineInterface, turnId: string, out: number) {
   if (note === null || note.turnId !== turnId) return
   await update($, turn, () => null)
   if (note.level === null) return
-  const now = await costNow($)
-  const spent = note.usdAtStart !== null && now !== null ? Math.max(0, now - note.usdAtStart) : 0
-  const row: LedgerTurn = { t: await $.clock.now(), level: note.level, rec: note.rec, usd: spent, out }
+  const row: LedgerTurn = { t: await $.clock.now(), level: note.level, rec: note.rec }
   try {
     await $.store.set('ledger', added(await readLedger($), row))
     await update($, ledgerTick, n => n + 1)
@@ -635,26 +646,16 @@ async function midTurnCheck($: EngineInterface, turnId: string, index: number, l
 }
 
 /**
- * The band's side facts, as room allows: what this turn (or the last) and
- * today cost, and the levels subagents got. Context and rate limits are
- * Claude Code's own figures, left to the tools that show those.
+ * The band's side facts, as room allows: what Jev cost today, from the usage
+ * its answers report, and the levels subagents got. Claude's own spending
+ * is not this plugin's to show.
  */
 async function bandFacts($: EngineInterface, s: Settings, columns: number): Promise<string[]> {
   const w = WORDS[s.l]
   const facts: string[] = []
-  try {
-    const u = await $.session.usage()
-    const now = u.cost?.usd ?? null
-    const note = await read($, turn)
-    const rows = await readLedger($)
-    const ledger = summary(rows, await $.clock.now())
-    const turnUsd = note !== null && note.usdAtStart !== null && now !== null ? Math.max(0, now - note.usdAtStart) : null
-    const last = rows.at(-1)
-    if (columns >= 70 && turnUsd !== null) facts.push(w.turnCost(usd(turnUsd)))
-    else if (columns >= 70 && last !== undefined) facts.push(w.lastTurn(usd(last.usd)))
-    if (columns >= 70) facts.push(w.today(usd(ledger.todayUsd + (turnUsd ?? 0))))
-  } catch {
-    // No usage figures: the band still shows the verdict.
+  if (columns >= 70) {
+    const sum = summary([], await readJevDays($), await $.clock.now())
+    if (sum.todayCalls > 0) facts.push(w.jevCost(usd(sum.todayUsd)))
   }
   const subs = Object.values(await read($, agentLevels))
   if (columns >= 100 && subs.length > 0) {
@@ -673,13 +674,6 @@ async function claimSpawn($: EngineInterface, agentId: string): Promise<string |
   return free.level
 }
 
-async function costNow($: EngineInterface): Promise<number | null> {
-  try {
-    return (await $.session.usage()).cost?.usd ?? null
-  } catch {
-    return null
-  }
-}
 
 // ------------------------------------------------------------- what lasts across sessions
 
@@ -687,6 +681,15 @@ async function readLedger($: EngineInterface): Promise<LedgerTurn[]> {
   try {
     const value = await $.store.get('ledger')
     return Array.isArray(value) ? (value as LedgerTurn[]) : []
+  } catch {
+    return []
+  }
+}
+
+async function readJevDays($: EngineInterface): Promise<JevDay[]> {
+  try {
+    const value = await $.store.get('jev')
+    return Array.isArray(value) ? (value as JevDay[]) : []
   } catch {
     return []
   }
