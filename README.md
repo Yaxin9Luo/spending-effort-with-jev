@@ -9,6 +9,8 @@ It switches only when you say so. Needs Claude Code 2.1.287 or later: v0.3 is wr
 
 **Upgrading from v0.2:** if you set up its status line (a `statusLine` setting running `bin/statusline.py`), remove that setting; v0.3 shows its line itself.
 
+**Also in this marketplace: [elizabeth-progress](plugins/elizabeth-progress)**, a context-window progress bar above the prompt with Elizabeth from *Gintama* walking on it, plus turns left to auto-compact and your rate limits. It's a separate plugin with no key: install either or both (`/plugin install elizabeth-progress@spending-effort-with-jev`). Both share the band above the prompt.
+
 ## Install
 
 **Easiest: let Claude Code install it.** Paste this into Claude Code:
@@ -164,6 +166,8 @@ claude plugin test plugins/spending-effort-with-jev       # the mod's tests, UI 
 claude plugin validate plugins/spending-effort-with-jev
 python3 -m unittest discover tests        # the v0.2 hook's tests, and parity with the mod (needs bun)
 TYPESAFE_API_KEY=... python3 tests/eval_live.py   # dev only; the plugin itself reads the key from its config
+claude plugin test plugins/elizabeth-progress           # the progress bar's tests
+claude plugin validate plugins/elizabeth-progress
 ```
 
 The mod is [`plugins/spending-effort-with-jev/hooks/`](plugins/spending-effort-with-jev/hooks): `judge.ts` holds the judgement (what Jev is asked, the verdict, the wording), `register.tsx` the hooks. [`python/`](python) holds the v0.2 Python hook the evaluation ran on. [`bench/`](bench) holds the task harness used for the runs above: headless `claude -p` in a clean environment, graded by hidden tests.
@@ -184,4 +188,4 @@ This is an independent project, not affiliated with or endorsed by Anthropic or 
 
 ## License
 
-MIT
+MIT. The elizabeth-progress plugin's MIT license covers its code and drawing, not the character; see [its README](plugins/elizabeth-progress#about-the-character).

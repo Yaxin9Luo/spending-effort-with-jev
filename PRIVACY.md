@@ -31,6 +31,10 @@ How TypeSafe handles that data is covered by TypeSafe's [privacy policy](https:/
 - Only if you turn on `log_decisions`: `decisions.jsonl` in `~/.claude/plugins/data/spending-effort-with-jev-spending-effort-with-jev/` gets one line per message, decision, offer and failure, with Jev's probabilities, the plugin's decision, your setting and the level sent, your answer to each offer (switch, keep, other, dismissed), the session id, and lengths (characters, number of context messages). A failure is logged by its kind (a timeout, an HTTP status), never by what the response said. The log never contains the text of your messages or of Claude's replies. It grows to about 1 MB, then the previous file is kept as `decisions.1.jsonl`. Delete either file any time.
 - Files the v0.2 hook kept in that folder (`advice-`, `live-`, `session-`, `stay-`, `tip-` and `turn-*.json`, `no-key-notice-shown`, and `bin/`) are no longer used and can be deleted. If you set up the v0.2 status line, remove its `statusLine` setting first: it runs `bin/statusline.py` and keeps writing `live-*.json`.
 
+## elizabeth-progress
+
+The progress bar in the same marketplace sends nothing anywhere and keeps no files. It reads the figures Claude Code already measures (context use and its breakdown, rate limits, the session's cost) and holds them, with the context fill at the end of each of the last 40 turns, in memory for the session.
+
 ## Turning it off
 
 Disable or uninstall the plugin under `/plugin`. Nothing is sent while it's disabled.

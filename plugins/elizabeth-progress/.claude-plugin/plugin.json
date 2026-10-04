@@ -1,0 +1,21 @@
+{
+  "name": "elizabeth-progress",
+  "version": "0.1.0",
+  "description": "Elizabeth (Gintama) walks a context-window progress bar above the prompt, with the usage breakdown, turns left to auto-compact, and rate limits. Unofficial fan work.",
+  "author": {
+    "name": "Yaxin Luo"
+  },
+  "homepage": "https://github.com/Yaxin9Luo/spending-effort-with-jev/tree/main/plugins/elizabeth-progress",
+  "repository": "https://github.com/Yaxin9Luo/spending-effort-with-jev",
+  "documentationUrl": "https://github.com/Yaxin9Luo/spending-effort-with-jev/tree/main/plugins/elizabeth-progress#readme",
+  "supportUrl": "https://github.com/Yaxin9Luo/spending-effort-with-jev/issues",
+  "privacyPolicyUrl": "https://github.com/Yaxin9Luo/spending-effort-with-jev/blob/main/PRIVACY.md#elizabeth-progress",
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "keywords": [
+    "context",
+    "progress",
+    "rate-limits",
+    "mod"
+  ]
+}
