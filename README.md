@@ -1,17 +1,43 @@
 # spending-effort-with-jev
 
-**Know which `/effort` level each message needs, and switch with one key.** A Claude Code plugin: every message you type is read by [TypeSafe](https://typesafe.ai)'s Jev model, which judges how much effort the task deserves. Before Claude starts, you get a one-line verdict against the level Claude is about to run on, and when that level looks wrong, one key switches it.
+**Two [Claude Code mods](https://claude.dev/blog/getting-started-with-claude-code-mods/) that live above your prompt.** Install either or both; they share the band and stack.
+
+| | What it does | Needs |
+| --- | --- | --- |
+| **spending-effort-with-jev** | Judges every message's `/effort` level with [TypeSafe](https://typesafe.ai)'s Jev and switches it for that turn on your OK | a TypeSafe API key |
+| **[elizabeth-progress](plugins/elizabeth-progress)** | Elizabeth from *Gintama* walks a context-window progress bar: usage by category, turns left to auto-compact, 5-hour and weekly limits | nothing |
+
+![Elizabeth's band at 28%, 72% and 81% of the context window](assets/elizabeth-light.png)
+
+```
+/plugin marketplace add Yaxin9Luo/spending-effort-with-jev
+/plugin install spending-effort-with-jev@spending-effort-with-jev
+/plugin install elizabeth-progress@spending-effort-with-jev
+```
+
+Both need Claude Code 2.1.287 or later, in the terminal or the desktop app.
+
+## The effort advisor
+
+**Know which `/effort` level each message needs, and switch with one key.** Every message you type is read by Jev, which judges how much effort the task deserves. Before Claude starts, you get a one-line verdict against the level Claude is about to run on, and when that level looks wrong, one key switches it.
 
 - **With `ask_first` on**, a dialog asks before Claude starts. On `low` for a tricky bug: "This looks like high-effort work, and the session is on low. Switch to high for it?" On `max` for a quick question, it offers to drop to `low`.
-- **With it off**, nothing waits on you: while Claude works, a band above the prompt offers `1: Switch to high  2: Keep low  0: Close`, and a switch applies from Claude's next step. The offer goes when the turn ends.
+- **With it off**, nothing waits on you: while Claude works, a band above the prompt offers `1: Switch to high  2: Keep low  0: Close`, and a switch applies from Claude's next step.
 
-It switches only when you say so. Needs Claude Code 2.1.287 or later: v0.3 is written as a mod (a TypeScript hooks module), which is what lets it see your live level and switch it.
+New in v0.3, now that it's a mod:
+
+- **A switch lasts one turn.** The next message is judged on its own; turning one down never silences the next.
+- **Subagents get their own level.** Each subagent's task is sized by Jev (never above high) while your conversation stays on yours.
+- **Mid-turn downgrade.** In a long high or max turn, if the rest looks mechanical, it offers low for the rest of that turn.
+- **A spec interview** before a long hands-off run that leaves key requirements open: two or three questions, answers passed to Claude.
+- **Tunes to you.** Switches you keep taking come a little sooner; ones you keep turning down, a little later.
+- **A ledger** (`/effort-ledger`): turns per level, how often you followed Jev, and Jev's own API cost.
+
+It switches only when you say so.
 
 **Upgrading from v0.2:** if you set up its status line (a `statusLine` setting running `bin/statusline.py`), remove that setting; v0.3 shows its line itself.
 
-**Also in this marketplace: [elizabeth-progress](plugins/elizabeth-progress)**, a context-window progress bar above the prompt with Elizabeth from *Gintama* walking on it, plus turns left to auto-compact and your rate limits. It's a separate plugin with no key: install either or both (`/plugin install elizabeth-progress@spending-effort-with-jev`). Both share the band above the prompt.
-
-## Install
+## Installing the effort advisor
 
 **Easiest: let Claude Code install it.** Paste this into Claude Code:
 

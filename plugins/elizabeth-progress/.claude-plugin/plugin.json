@@ -1,6 +1,6 @@
 {
   "name": "elizabeth-progress",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Elizabeth (Gintama) walks a context-window progress bar above the prompt, with the usage breakdown, turns left to auto-compact, and rate limits. Unofficial fan work.",
   "author": {
     "name": "Yaxin Luo"

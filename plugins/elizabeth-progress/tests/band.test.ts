@@ -105,3 +105,12 @@ describe('token counts', () => {
     expect(k(1_250_000)).toBe('1.25M')
   })
 })
+
+describe('narrow columns', () => {
+  test('a reset time is short enough for a quarter of a 770px band', () => {
+    const s = svg(view(28))
+    expect(s).toContain('↻ 33m')
+    expect(s).toContain('↻ 1d 11h')
+    expect(s).not.toContain('resets ')
+  })
+})

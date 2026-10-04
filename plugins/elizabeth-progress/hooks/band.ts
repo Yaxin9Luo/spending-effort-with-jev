@@ -105,7 +105,7 @@ export const svg = ({ c, ps, ls, usd, h, at, now }: View) => {
     ...ls.slice(0, 2).map(l => ({
       label: LIMIT_NAME[l.kind] ?? l.kind,
       value: `${l.percentUsed}%`,
-      sub: l.resetsAt ? `resets ${until(l.resetsAt, now)}` : '',
+      sub: l.resetsAt ? `↻ ${until(l.resetsAt, now)}` : '',
       frac: l.percentUsed / 100,
     })),
     ...(usd !== null ? [{ label: 'Cost', value: `$${usd.toFixed(2)}`, sub: 'this session' }] : []),

@@ -6,7 +6,7 @@
 
 - **The bar** is coloured by what fills the window (messages, system tools, MCP tools, skills, system prompt), with the auto-compact zone hatched at its end.
 - **Her mood** follows the way to auto-compact: calm, then angry from 80% of the way there (the sign flashes 💢), then in tears from 95%.
-- **The figures on the right:** context used, turns left before auto-compact (from the average rise of the last five turns, with a sparkline), the 5-hour and weekly limits with their reset times, and the session's cost. In a window narrower than 900px the cost column and the last two legend entries drop out.
+- **The figures on the right:** context used, turns left before auto-compact (from the average rise of the last five turns, with a sparkline), the 5-hour and weekly limits with the time until each resets (↻), and the session's cost. In a window narrower than 900px the cost column and the last two legend entries drop out.
 - **In the terminal** it is one line: a bar and `tokens / window (percent)`.
 
 It shares the band: whatever other plugins draw above the prompt stays, and Elizabeth goes underneath. Dark mode is supported.
