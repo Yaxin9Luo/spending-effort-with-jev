@@ -3,7 +3,7 @@
 // (v0.2.7) with the same thresholds and the same semantics.
 import type { Answers, Level } from '../types'
 
-export const VERSION = '0.3.1' // kept equal to plugin.json by a test
+export const VERSION = '0.3.2' // kept equal to plugin.json by a test
 export const JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 export const TIMEOUT_MS = 6_000
 
