@@ -350,6 +350,15 @@ describe('the band (ask_first off)', () => {
     })
   }
 
+  test('on the desktop there is no status line', { options: PLAIN }, async ($, on) => {
+    const w = world(on, { jev: [jev('high', 0.97)] })
+    on('session.surfaces', () => ({ value: [] }))
+    mock.clock(on)
+    await $.ui.mount({ plugin: 'spending-effort-with-jev', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100 } as any })
+    await send($, 'fix the flaky integration test', 'low')
+    expect(w.statuses.every(t => t === undefined)).toBe(true)
+  })
+
   test('a switch pressed after the setting moved elsewhere starts from the new setting', { options: PLAIN }, async ($, on) => {
     const w = world(on, { jev: [jev('high', 0.97)] })
     mock.clock(on)

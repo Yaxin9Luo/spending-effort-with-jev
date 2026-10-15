@@ -194,6 +194,7 @@ export const register: Register = (on, options) => {
   // The band holds one tree, and plugins draw it in a chain: the row goes on
   // top of whatever the plugins beneath drew, never in its place.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    sawDesktop($, e.surface)
     const o = await read($, offer)
     const c = await read($, card)
     if ((o === null && c === null) || e.props.hasSurvey) return next(e)
@@ -445,6 +446,31 @@ async function within<T>($: EngineInterface, ms: number, work: Promise<T>): Prom
   }
 }
 
+/**
+ * Whether the desktop draws this session. `$.session.surfaces()` can come back
+ * empty there, so the desktop is also known by the first of its band's draws.
+ */
+let onDesktop = false
+
+function sawDesktop($: EngineInterface, surface: string) {
+  if (surface !== 'desktop' || onDesktop) return
+  onDesktop = true
+  $.ui.status(undefined)
+}
+
+/** The mod's status line, left off on the desktop: the band there says enough. */
+function say($: EngineInterface, text: string | undefined) {
+  if (!onDesktop) {
+    void $.session.surfaces().then(
+      list => {
+        if (list.includes('desktop')) sawDesktop($, 'desktop')
+      },
+      () => undefined,
+    )
+  }
+  $.ui.status(onDesktop ? undefined : text)
+}
+
 // ------------------------------------------------------------- deciding
 
 /** The effort to send on this main-loop request; undefined leaves it alone. */
@@ -453,7 +479,7 @@ async function levelFor($: EngineInterface, setting: unknown, s: Settings, turnI
     // A model without effort, or a token budget: nothing to compare or switch.
     if ((await read($, pending)) !== null) {
       await update($, pending, () => null)
-      $.ui.status(undefined)
+      say($, undefined)
     }
     return undefined
   }
@@ -506,7 +532,7 @@ async function decide($: EngineInterface, p: Pending, setting: string, level: st
   // A status line stays until replaced: one quiet doesn't show is cleared, not left stale.
   // What actually runs comes first, so a truncated line still says it.
   const shown = !s.quiet || isNews || prefix !== ''
-  $.ui.status(shown ? prefix + line : undefined)
+  say($, shown ? prefix + line : undefined)
   await update($, card, () => (shown ? drawn : null))
   return chosen
 }
@@ -586,7 +612,7 @@ async function release($: EngineInterface, s: Settings, setting?: string) {
   await update($, offer, () => null)
   if ((await read($, override)) === null) return
   await update($, override, () => null)
-  $.ui.status(WORDS[s.l].released(setting))
+  say($, WORDS[s.l].released(setting))
 }
 
 async function switchTo($: EngineInterface, level: string, setting: string, turnId: string): Promise<string> {
@@ -601,7 +627,7 @@ async function acceptOffer($: EngineInterface, o: Offer, s: Settings) {
   await update($, offer, () => null)
   // The band now runs on the switched level: it fits, as after a switch in the dialog.
   await update($, card, () => ({ current: o.level, rec: o.level as Level, kind: 'match', share: o.share }))
-  $.ui.status(WORDS[s.l].switched(o.level))
+  say($, WORDS[s.l].switched(o.level))
   if (!o.isMidTurn) await tally($, o.direction, true)
   await log($, s, { event: 'offer', answer: 'switch', rec: o.level, from: o.from, setting: o.setting, midturn: o.isMidTurn === true })
 }
@@ -648,7 +674,7 @@ async function closeTurn($: EngineInterface, turnId: string, s: Settings) {
   if (ov !== null && ov.turnId === turnId) {
     await update($, override, () => null)
     const base = ov.base ?? undefined
-    $.ui.status(WORDS[s.l].released(base))
+    say($, WORDS[s.l].released(base))
     // The verdict was for the message just done: say what it ran on, not that it "fits" the level now back.
     if (base !== undefined) await update($, card, c => (c === null || c.current === base ? c : { current: base, rec: c.current as Level, kind: 'released' }))
   }

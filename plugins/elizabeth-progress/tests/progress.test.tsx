@@ -6,6 +6,8 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 type Setup = {
   /** What the plugins beneath draw in the band; nothing by default. */
   below?: string
+  /** No API reply yet: the status line's figures are absent, only the local estimate has them. */
+  isUnmeasured?: boolean
 }
 
 /** The context fill `$.session.usage` reports right now; a test moves it as the conversation grows. */
@@ -26,10 +28,14 @@ function world(on: any, setup: Setup): Live {
       ],
       autoCompactThreshold: WINDOW * 0.8,
       isAutoCompactEnabled: true,
+      totalTokens: percent * 2000,
+      percentage: percent,
     }
-    return { value: { startedAt: 0, rateLimits: [], context: { tokens: percent * 2000, window: WINDOW, percent, breakdown } } }
+    const figures = setup.isUnmeasured ? {} : { tokens: percent * 2000, percent }
+    return { value: { startedAt: 0, rateLimits: [], context: { ...figures, window: WINDOW, breakdown } } }
   })
   on('session.measure', ($: any, e: any) => ({ changed: e.changed }))
+  on('session.start', ($: any, e: any) => ({ cwd: e.cwd }))
   on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
   on('ui.render', { component: 'AbovePrompt' }, ($: any, e: any) => {
     const { Box, Text } = $.ui.resolve(e)
@@ -75,6 +81,15 @@ describe('the band', () => {
       expect(await band.find({ text: 'medium is enough' })).toBeDefined()
       expect(await band.find({ type: 'Svg' })).toBe(undefined)
       expect(await band.find({ text: /\(\d+%\)/ })).toBe(undefined)
+    })
+
+    test(`a new session draws her at once, from the local estimate (${surface})`, async ($, on) => {
+      world(on, { isUnmeasured: true })
+      mock.clock(on)
+      await $.session.start({ cwd: '/w', surface, isInteractive: true })
+      const band = await mount($, surface)
+      if (surface === 'desktop') expect((await band.find({ type: 'Svg' }))?.props.alt).toBe('context 10%')
+      else expect(await band.find({ text: /20\.0k \/ 200\.0k \(10%\)/ })).toBeDefined()
     })
 
     test(`draws under what the plugins beneath draw (${surface})`, async ($, on) => {
