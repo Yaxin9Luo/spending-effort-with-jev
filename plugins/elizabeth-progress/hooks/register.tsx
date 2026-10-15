@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 import type { Ctx, Limit, Part } from '../types'
 import { H, k, svg, tone } from './band'
@@ -26,21 +26,28 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // A new session draws her at once, from a local estimate (no request),
+  // rather than waiting for the first API reply to measure the window.
+  on('session.start', async ($, e, next) => {
+    const result = await next(e)
+    const { context, rateLimits, cost: spent } = await breakdown($)
+    if ((await read($, ctx)) === null) {
+      const b = context.breakdown
+      const tokens = context.tokens ?? b?.totalTokens
+      const percent = context.percent ?? b?.percentage
+      if (tokens !== undefined && percent !== undefined) await update($, ctx, () => ({ tokens, window: context.window, percent }))
+    }
+    if (rateLimits.length > 0) await update($, limits, () => rateLimits.map(l => ({ kind: l.kind, percentUsed: l.percentUsed, resetsAt: l.resetsAt })))
+    if (spent) await update($, cost, () => spent.usd)
+    return result
+  })
+
   // After each main-loop turn: the breakdown (a local estimate, no request),
   // the auto-compact threshold, and one more point of history.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId !== undefined) return result // a subagent's turn leaves the main context as it was
-    const { context } = await $.session.usage({ breakdown: 'summary' })
-    const b = context.breakdown
-    const rows = (b?.categories ?? [])
-      .filter(r => r.kind === 'used' && r.tokens > 0)
-      .sort((x, y) => y.tokens - x.tokens)
-      .slice(0, 5)
-      .map(r => ({ name: r.name, tokens: r.tokens }))
-    await update($, parts, () => rows)
-    const threshold = b?.isAutoCompactEnabled && b.autoCompactThreshold ? b.autoCompactThreshold : null
-    await update($, compactAt, () => (threshold !== null ? (threshold / context.window) * 100 : null))
+    const { context } = await breakdown($)
     if (context.percent !== undefined) {
       const p = context.percent
       await update($, hist, h => [...h, p].slice(-40))
@@ -87,4 +94,20 @@ export const register: Register = on => {
       </Box>
     )
   })
+}
+
+/** The window broken down as /context does, estimated locally: its largest parts and the auto-compact line. */
+async function breakdown($: EngineInterface) {
+  const usage = await $.session.usage({ breakdown: 'summary' })
+  const { context } = usage
+  const b = context.breakdown
+  const rows = (b?.categories ?? [])
+    .filter(r => r.kind === 'used' && r.tokens > 0)
+    .sort((x, y) => y.tokens - x.tokens)
+    .slice(0, 5)
+    .map(r => ({ name: r.name, tokens: r.tokens }))
+  await update($, parts, () => rows)
+  const threshold = b?.isAutoCompactEnabled && b.autoCompactThreshold ? b.autoCompactThreshold : null
+  await update($, compactAt, () => (threshold !== null ? (threshold / context.window) * 100 : null))
+  return usage
 }
